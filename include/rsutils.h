@@ -1,4 +1,5 @@
-#pragma once
+#ifndef RSUTILS
+#define RSUTILS
 #include <algorithm>
 #include <chrono>
 #include <iostream>
@@ -29,8 +30,50 @@
 #endif
 
 #define BB_DEFAULT_SIZE 4096
+
 namespace rs
 {
+
+
+	namespace design
+	{
+		template <class T>
+		class singleton : private T
+		{
+		private:
+			singleton();
+			~singleton();
+
+		public:
+			static T& instance();
+		};
+
+
+		template <class T>
+		inline singleton<T>::singleton()
+		{
+			/* no-op */
+		}
+
+		template <class T>
+		inline singleton<T>::~singleton()
+		{
+			/* no-op */
+		}
+
+		template <class T>
+		/*static*/ T& singleton<T>::instance()
+		{
+			// function-local static to force this to work correctly at static
+			// initialization time.
+			static singleton<T> s_oT;
+			return(s_oT);
+		}
+	}
+
+
+
+
 	namespace uuid
 	{
 		/**
@@ -41,73 +84,37 @@ namespace rs
 		class Snowflake
 		{
 		public:
-			Snowflake() :epoch(0), time(0), machine(0), sequence(0) {
-
-			}
-			~Snowflake() {}
-			void setEpoch(uint64_t epoch) {
-				this->epoch = epoch;
-			}
-			void setMachine(int machine) {
-				this->machine = machine;
-			}
+			Snowflake() = default;
+			~Snowflake() = default;
+			void setEpoch(uint64_t epoch);
+			void setMachine(int machine);
 			/**
 			 *生成策略
 			 *Date :[7/10/2019 ]
 			 *Author :[RS]
 			 */
-			uint64_t generate() {
-				uint64_t value = 0;
-				uint64_t time = getTime() - this->epoch;
-				//时间41位
-				value |= time << 21;
-				//机器码10位
-				value |= (this->machine & 0x3FF) << 13;
-				//增量值12位
-				value |= this->sequence++ & 0x1FFF;
-				if (this->sequence == 0x10000) {
-					this->sequence = 0;
-				}
-				return value;
-			}
+			uint64_t generate();
 		private:
 #if defined(_MSC_VER) || defined(_MSC_EXTENSIONS)
 #include <windows.h>
 #include <time.h>
-			uint64_t getTime()
-			{
-				FILETIME ft;
-				uint64_t time = 0;
-				static int tzflag;
-
-				GetSystemTimeAsFileTime(&ft);
-
-				time |= ft.dwHighDateTime;
-				time <<= 32;
-				time |= ft.dwLowDateTime;
-
-				time /= 10;
-
-				time -= 11644473600000000Ui64;
-
-				return time / 1000;
-			}
+			uint64_t getTime();
 #endif
 			/**
 			 *起始时间戳
 			 *Date :[7/10/2019 ]
 			 *Author :[RS]
 			 */
-			uint64_t epoch;
+			uint64_t epoch = 0;
 
-			uint64_t time;
+			uint64_t time = 0;
 			/**
 			 *机器号
 			 *Date :[7/10/2019 ]
 			 *Author :[RS]
 			 */
-			int machine;
-			int sequence;
+			int machine = 0;
+			int sequence = 0;
 		};
 
 	}
@@ -122,42 +129,24 @@ namespace rs
 			void reset() { m_begin = std::chrono::high_resolution_clock::now(); }
 
 			//默认输出毫秒
-			int64_t elapsed() const
-			{
-				return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - m_begin).count();
-			}
+			int64_t elapsed() const;
 
 			//输出秒
-			int64_t elapsed_second() const
-			{
-				return std::chrono::duration_cast<std::chrono::seconds>(std::chrono::high_resolution_clock::now() - m_begin).count();
-			}
+			int64_t elapsed_second() const;
 
 			//微秒
-			int64_t elapsed_micro() const
-			{
-				return std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - m_begin).count();
-			}
+			int64_t elapsed_micro() const;
 
 			//纳秒
-			int64_t elapsed_nano() const
-			{
-				return std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::high_resolution_clock::now() - m_begin).count();
-			}
+			int64_t elapsed_nano() const;
 
 
 
 			//分
-			int64_t elapsed_minutes() const
-			{
-				return std::chrono::duration_cast<std::chrono::minutes>(std::chrono::high_resolution_clock::now() - m_begin).count();
-			}
+			int64_t elapsed_minutes() const;
 
 			//时
-			int64_t elapsed_hours() const
-			{
-				return std::chrono::duration_cast<std::chrono::hours>(std::chrono::high_resolution_clock::now() - m_begin).count();
-			}
+			int64_t elapsed_hours() const;
 
 		private:
 			std::chrono::time_point<std::chrono::high_resolution_clock> m_begin;
@@ -165,10 +154,7 @@ namespace rs
 		class TimerClockFactory
 		{
 		public:
-			static std::shared_ptr<TimerClock> getInstance()
-			{
-				return std::make_shared<TimerClock>();
-			}
+			static std::shared_ptr<TimerClock> getInstance();
 		};
 	}
 	/**
@@ -178,171 +164,75 @@ namespace rs
 	{
 		class ByteBuffer {
 		public:
-			ByteBuffer(uint32_t size = BB_DEFAULT_SIZE) {
-				buf = new uint8_t[size];
-				capacity_ = size;
-				clear();
-			}
-			~ByteBuffer() {
-				delete buf;
-			}
+			ByteBuffer(uint32_t size = BB_DEFAULT_SIZE);
+			~ByteBuffer();
 			/**
 			 * Returns the number of bytes (octets) this buffer can contain.
 			 *Date :[7/29/2019 ]
 			 *Author :[RS]
 			 */
-			uint32_t capacity() { // Size of internal vector
-				return capacity_;
-			}
+			uint32_t capacity(); // Size of internal vector
+
 
 			/**
 			 *清空数据，标记为全部置为0
 			 *Date :[7/29/2019 ]
 			 *Author :[RS]
 			 */
-			void clear() {
-				readerIndex_ = 0;
-				writerIndex_ = 0;
-				memset(buf, 0, capacity_);
-			}
+			void clear();
 			//Discards the bytes between the 0th index and readerIndex.markWR set0;
-			ByteBuffer* discardReadBytes() {
-				if (readerIndex_ == 0) {
-					return this;
-				}
-				if (readerIndex_ != writerIndex_) {
-					memcpy(buf, &buf[readerIndex_], writerIndex_ - readerIndex_);
-					writerIndex_ -= readerIndex_;
-					adjustMarkers(readerIndex_);
-					readerIndex_ = 0;
-				}
-				else {
-					adjustMarkers(readerIndex_);
-					writerIndex_ = readerIndex_ = 0;
-				}
-				return this;
-			}
+			ByteBuffer* discardReadBytes();
 
 			//Returns the readerIndex of this buffer.
-			uint32_t readerIndex() {
-				return readerIndex_;
-			}
-			void readerIndex(uint32_t readerIndex) const
-			{
-				readerIndex_ = readerIndex;
-			}
-			uint32_t writerIndex() {
-				return writerIndex_;
-			}
-			void writerIndex(uint32_t writerIndex) {
-				writerIndex_ = writerIndex;
-			}
+			uint32_t readerIndex();
+			void readerIndex(uint32_t readerIndex) const;
+			uint32_t writerIndex();
+			void writerIndex(uint32_t writerIndex);
 
-			bool setIndex(int readerIndex__, int writerIndex__) {
-				if (checkIndexBounds(readerIndex__, writerIndex__, capacity_)) {
-					readerIndex(readerIndex__);
-					writerIndex(writerIndex__);
-				}
-				else {
-					return false;
-				}
-			}
-			uint32_t readableBytes() {
-				return writerIndex_ - readerIndex_;
-			}
-			uint32_t writableBytes() {
-				return capacity_ - writerIndex_;
-			}
+			bool setIndex(int readerIndex__, int writerIndex__);
+			uint32_t readableBytes();
+			uint32_t writableBytes();
 			//当且仅当（this.writerIndex - this.readerIndex）大于0时返回true。
-			bool  isReadable() {
-				return writerIndex_ > readerIndex_;
-			}
+			bool  isReadable();
 			//当且仅当此缓冲区包含等于或大于指定数量的元素时，才返回true。
-			bool isReadable(int numBytes) {
-				return writerIndex_ - readerIndex_ > numBytes;
-			}
+			bool isReadable(int numBytes);
 			//当且仅当（this.capacity - this.writerIndex）大于0时返回true。
-			bool isWritable() {
-				return capacity_ > writerIndex_;
-			}
+			bool isWritable();
 			//当且仅当此缓冲区有足够的空间允许写入指定数量的元素时，才返回true。
-			bool 	isWritable(int numBytes) {
-				return capacity_ - writerIndex_ > numBytes;
-			}
+			bool 	isWritable(int numBytes);
 
 			//标记此缓冲区中的当前readerIndex。
-			ByteBuffer* markReaderIndex() {
-				markReaderIndex_ = readerIndex_;
-				return this;
-			}
+			ByteBuffer* markReaderIndex();
 			//Repositions the current readerIndex to the marked readerIndex in this buffer.
-			ByteBuffer* resetReaderIndex() {
-				readerIndex(markReaderIndex_);
-				return this;
-			}
+			ByteBuffer* resetReaderIndex();
 			//标记此缓冲区中的当前writerIndex。
-			ByteBuffer* markWriterIndex() {
-				markWriterIndex_ = writerIndex_;
-				return this;
-			}
+			ByteBuffer* markWriterIndex();
 			//Repositions the current writerIndex to the marked writerIndex in this buffer.
-			ByteBuffer* resetWriterIndex() {
-				writerIndex(markWriterIndex_);
-				return this;
-			}
+			ByteBuffer* resetWriterIndex();
 
 
 
-
-			uint8_t* data() {
-				return buf;
-			}
+			uint8_t* data();
 			/**
 			 *读指针
 			 *Date :[9/27/2019 ]
 			 *Author :[RS]
 			 */
-			uint8_t* dataReading() {
-				return &buf[readerIndex_];
-			}
+			uint8_t* dataReading();
 			/**
 			 *写指针
 			 *Date :[9/27/2019 ]
 			 *Author :[RS]
 			 */
-			uint8_t* dataWriting() {
-				return &buf[writerIndex_];
-			}
+			uint8_t* dataWriting();
 			/**
 			 *读指针位置跳过skipStep
 			 *Date :[9/27/2019 ]
 			 *Author :[RS]
 			 */
-			bool skip(size_t skipStep) {
-				if (skipStep <= readableBytes()) {
-					readerIndex(readerIndex_ + skipStep);
-					return false;
-				}
-				else {
-					return false;
-				}
-			}
-			bool writeSkip(size_t skipStep) {
-				writerIndex(writerIndex_ + skipStep);
-				return true;
-			}
-			ByteBuffer* capacity(int newCapacity) {
-				uint8_t* tmp = new uint8_t[newCapacity];
-				if (readableBytes() > 0) {
-					memcpy(tmp, &buf[readerIndex_], readableBytes());
-				}
-				delete buf;
-				buf = tmp;
-				markWriterIndex_ = writerIndex_ = readableBytes();
-				markReaderIndex_ = readerIndex_ = 0;
-				capacity_ = newCapacity;
-				return this;
-			}
+			bool skip(size_t skipStep);
+			bool writeSkip(size_t skipStep);
+			ByteBuffer* capacity(int newCapacity);
 
 			/**
 			 *字符串
@@ -935,184 +825,77 @@ namespace rs
 	 */
 	namespace log
 	{
-		std::map<std::string, spdlog::level::level_enum> levelMaps = {
-			{"trace",spdlog::level::trace},
-			{"debug",spdlog::level::debug},
-			{"info",spdlog::level::info},
-			{"warn",spdlog::level::warn},
-			{"error",spdlog::level::err},
-			{"critical",spdlog::level::critical},
-			{"off",spdlog::level::off}
+
+		enum LogType
+		{
+			LOGCMD,
+			LOGDAY,
+			LOGROTATI
 		};
+
 		struct DayLogConfig
 		{
-			std::string logName;
-			int hour;
-			int min;
-			spdlog::level::level_enum fileLevel;
-			spdlog::level::level_enum cmdLevel;
+			std::string logName = "system.log";
+			int hour = 1;
+			int min = 1;
+			spdlog::level::level_enum fileLevel = spdlog::level::trace;
+			spdlog::level::level_enum cmdLevel = spdlog::level::trace;
 		};
-		void to_json(nlohmann::json& j, const DayLogConfig& obj)
-		{
-			std::string fileLevel = "";
-			std::string cmdLevel = "";
-			for (auto tmp : levelMaps)
-			{
-				if (obj.cmdLevel == tmp.second)
-				{
-					cmdLevel = tmp.first;
-				}
-				if (obj.fileLevel == tmp.second)
-				{
-					fileLevel = tmp.first;
-				}
-			}
-			if (fileLevel == "" || cmdLevel == "")
-			{
-				throw std::exception("DayLogConfig level is error");
-			}
-			j = nlohmann::json{ {"logName",obj.logName},{"hour",obj.hour},{"min",obj.min},{"fileLevel",fileLevel},{"cmdLevel",cmdLevel} };
-		}
-		void from_json(const nlohmann::json& j, DayLogConfig& obj)
-		{
-			j.at("logName").get_to(obj.logName);
-			j.at("hour").get_to(obj.hour);
-			j.at("min").get_to(obj.min);
-			auto resultfileLevel = j.at("fileLevel").get<std::string>();
-			auto resultcmdLevel = j.at("cmdLevel").get<std::string>();
-			obj.fileLevel = levelMaps.at(resultfileLevel);
-			obj.cmdLevel = levelMaps.at(resultcmdLevel);
-		}
+		void to_json(nlohmann::json& j, const DayLogConfig& obj);
+		void from_json(const nlohmann::json& j, DayLogConfig& obj);
 		struct RotatingLogConfig
 		{
-			std::string logName;
-			int maxSize;
-			int fileNum;
-			spdlog::level::level_enum  fileLevel;
-			spdlog::level::level_enum  cmdLevel;
+			std::string logName = "system.log";
+			int maxSize = 100;
+			int fileNum = 3;
+			spdlog::level::level_enum  fileLevel = spdlog::level::trace;
+			spdlog::level::level_enum  cmdLevel = spdlog::level::trace;
 		};
-		void to_json(nlohmann::json& j, const RotatingLogConfig& obj)
-		{
-			std::string fileLevel = "";
-			std::string cmdLevel = "";
-			for (auto tmp : levelMaps)
-			{
-				if (obj.cmdLevel == tmp.second)
-				{
-					cmdLevel = tmp.first;
-				}
-				if (obj.fileLevel == tmp.second)
-				{
-					fileLevel = tmp.first;
-				}
-			}
-			if (fileLevel == "" || cmdLevel == "")
-			{
-				throw std::exception("DayLogConfig level is error");
-			}
-			j = nlohmann::json{ {"logName",obj.logName},{"maxSize",obj.maxSize},{"fileNum",obj.fileNum},{"fileLevel",fileLevel},{"cmdLevel",cmdLevel} };
-		}
-		void from_json(const nlohmann::json& j, RotatingLogConfig& obj)
-		{
-			j.at("logName").get_to(obj.logName);
-			j.at("maxSize").get_to(obj.maxSize);
-			j.at("fileNum").get_to(obj.fileNum);
-			auto resultfileLevel = j.at("fileLevel").get<std::string>();
-			auto resultcmdLevel = j.at("cmdLevel").get<std::string>();
-			obj.fileLevel = levelMaps.at(resultfileLevel);
-			obj.cmdLevel = levelMaps.at(resultcmdLevel);
-		}
-		std::vector<spdlog::sink_ptr> sinks;
+		void to_json(nlohmann::json& j, const RotatingLogConfig& obj);
+		void from_json(const nlohmann::json& j, RotatingLogConfig& obj);
+
+
 		typedef std::shared_ptr<spdlog::logger> LOGGER;
-		std::once_flag onceFlag;
-		/**
-		 * 控制台日志级别
-		 */
-		static void init(spdlog::level::level_enum cmdLevel = spdlog::level::level_enum::debug)
+		extern std::once_flag onceFlag;
+
+
+		class LoggerFactory
 		{
-			spdlog::init_thread_pool(4096, 1);
-			auto cmdLogger = std::make_shared<spdlog::sinks::stderr_color_sink_mt>();
-			cmdLogger->set_level(cmdLevel);
-			sinks.push_back(cmdLogger);
-		}
-		/**
+		public:
+			LoggerFactory();
+			static LoggerFactory& getInstance();
+			/**
+			 * 控制台日志级别
+			 */
+			void init(spdlog::level::level_enum cmdLevel = spdlog::level::level_enum::trace);
+			/**
 		 * day日志
 		 * 程序运行目录config/log.json
 		 */
-		static void initDay()
-		{
-			DayLogConfig d;
-			d.logName = "system.log";
-			d.hour = 0;
-			d.min = 0;
-			d.cmdLevel = spdlog::level::info;
-			d.fileLevel = spdlog::level::info;
-			JsonUtils::FileToClass(StringUtils::getAppPathRS() + "config" + StringUtils::PathSeparatorRS() + "log.json", d);
-			sinks.clear();
-			init(d.cmdLevel);
-			auto strPath = StringUtils::getAppPathRS() + "ServerLog";
-			StringUtils::CreateFolderRS(strPath);
-			std::string logFilesp = strPath + StringUtils::PathSeparatorRS() + d.logName;
-			try {
-				auto fileLogger = std::make_shared<spdlog::sinks::daily_file_sink_mt>(logFilesp, d.hour, d.min);
-				fileLogger->set_level(d.fileLevel);
-				sinks.push_back(fileLogger);
-			}
-			catch (const std::exception& e) {
-				std::cout << "sinks push error:" << e.what() << std::endl;
-				std::this_thread::sleep_for(std::chrono::seconds(5));
-				exit(1);
-			}
-		}
-		static void initRotate()
-		{
-			RotatingLogConfig config;
-			config.logName = "system.log";
-			config.maxSize = 100;
-			config.fileNum = 3;
-			config.fileLevel = spdlog::level::info;
-			config.cmdLevel = spdlog::level::info;
-			sinks.clear();
-			JsonUtils::FileToClass(StringUtils::getAppPathRS() + "config" + StringUtils::PathSeparatorRS() + "log.json", config);
-			init(config.cmdLevel);
-			auto strPath = StringUtils::getAppPathRS() + "ServerLog";
-			StringUtils::CreateFolderRS(strPath);
+			void initDay();
+			void initRotate();
 
-			try {
-				auto logsink = std::make_shared<spdlog::sinks::rotating_file_sink_mt>(strPath + StringUtils::PathSeparatorRS() + config.logName, config.maxSize * 1024 * 1024, config.fileNum);
-				logsink->set_level(config.fileLevel);
-				sinks.push_back(logsink);
-			}
-			catch (const std::exception& e) {
-				std::cout << "sinks push error:" << e.what() << std::endl;
-				std::this_thread::sleep_for(std::chrono::seconds(5));
-				exit(1);
-			}
-		};
-		/**
+		public:
+			~LoggerFactory();
+			/**
+			 * 热更新日志级别
+			 */
+			void updateLogConfig(spdlog::level::level_enum cmdLevel, spdlog::level::level_enum fileLevel);
+			/**
 		 * 需要注意call_once 中决定启用的那种日志类型
 		 */
-		static LOGGER getLogger(const char* loggername)
+			LOGGER getLogger(const char* loggername);
+		private:
+			DayLogConfig d;
+			RotatingLogConfig config;
+			std::vector<spdlog::sink_ptr> sinks;
+		};
+		inline  LOGGER getLogger(const char* loggername)
 		{
-			try {
-				std::call_once(onceFlag, init, spdlog::level::debug);//控制台log
-				//std::call_once(onceFlag, initDay);//日log,每天几点几分开始生成,每天一个
-				//std::call_once(onceFlag, initRotate);//回滚式log,指定每个日志大小,以及日志数量
-			}
-			catch (...) {
-			}
-
-			auto logTmp = spdlog::get(loggername);
-			if (logTmp != nullptr) {
-				return logTmp;
-			}
-			auto logger = std::make_shared<spdlog::async_logger>(loggername, sinks.begin(), sinks.end(), spdlog::thread_pool(), spdlog::async_overflow_policy::block);
-			spdlog::register_logger(logger);
-			//spdlog::set_pattern("[%Y-%m-%dT%T.%FZ] [Pid:%P] [thread %t] [%n] [%l] %v%$");
-			//spdlog::set_pattern("[%Y-%m-%dT%T.%FZ] [thread %t] [%n] [%l] %v%$");
-			//spdlog::set_pattern("[%Y-%m-%dT%T.%FZ][Pid:%P] [thread %t] [%n] [%l] %v%$");
-			return logger;
+			return LoggerFactory::getInstance().getLogger(loggername);
 		}
+
+
 	}/**
 	 * 克隆表达式支持
 	 */
@@ -1121,7 +904,7 @@ namespace rs
 		/**
 		 * 正则表达式验证
 		 */
-		static bool getCornFormat(std::string const& cronStr, cron_expr& cornTmp)
+		inline  bool getCornFormat(std::string const& cronStr, cron_expr& cornTmp)
 		{
 			const char* err;
 			cron_parse_expr(cronStr.c_str(), &cornTmp, &err);
@@ -1130,7 +913,7 @@ namespace rs
 		/**
 		 * 获取正则表达式下一个time point
 		 */
-		static bool getNextTimePoint(std::string const& cronStr, std::chrono::system_clock::time_point& result)
+		inline bool getNextTimePoint(std::string const& cronStr, std::chrono::system_clock::time_point& result)
 		{
 			cron_expr cornTmp;
 			memset(&cornTmp, 0, sizeof(cornTmp));
@@ -1156,7 +939,7 @@ namespace rs
 	 */
 	namespace web
 	{
-		static void CrosDomain(const httplib::Request& req, httplib::Response& res)
+		inline void CrosDomain(const httplib::Request& req, httplib::Response& res)
 		{
 			res.set_header("Access-Control-Allow-Origin", req.get_header_value("Origin").c_str());
 			res.set_header("Allow", "GET, POST, HEAD, OPTIONS");
@@ -1171,27 +954,24 @@ namespace rs
 			//web port
 			uint32_t port;
 		};
-		void from_json(const nlohmann::json& j, WebConf& p)
+
+		inline void from_json(const nlohmann::json& j, WebConf& p)
 		{
 			j.at("path").get_to(p.path);
 			j.at("ip").get_to(p.ip);
 			j.at("port").get_to(p.port);
 		}
-		void to_json(nlohmann::json& j, const WebConf& p)
+
+		inline void to_json(nlohmann::json& j, const WebConf& p)
 		{
 			j = nlohmann::json{ {"path",p.path},{"ip",p.ip},{"port",p.port} };
 		}
-		rs::log::LOGGER logger = rs::log::getLogger("web");
+		extern rs::log::LOGGER loggerWeb;
+
 		class WebServer {
 		public:
-			WebServer()
-			{
-				Start();
-			};
-			~WebServer()
-			{
-				Stop();
-			}
+			WebServer();
+			~WebServer();
 
 
 			/**
@@ -1201,29 +981,8 @@ namespace rs
 			 *Date :[7/10/2019 ]
 			 *Author :[RS]
 			 */
-			void Start()
-			{
-				Init();
-				if (!JsonUtils::FileToClass(StringUtils::getAppPathRS() + "config" + StringUtils::PathSeparatorRS() + "web.json", webConf))
-				{
-					webConf.ip = "127.0.0.1";
-					webConf.port = 80;
-					webConf.path = "web";
-				}
-				web.set_base_dir((StringUtils::getAppPathRS() + webConf.path).data());
-				std::thread t([&]()
-				{
-					logger->info("web listening {}:{}", webConf.ip, webConf.port);
-					web.listen(webConf.ip.c_str(), webConf.port);
-				});
-				t.detach();
-			}
-			void Stop()
-			{
-				logger->info("stop");
-				web.stop();
-				std::this_thread::sleep_for(std::chrono::seconds(2));
-			}
+			void Start();
+			void Stop();
 			template<bool isGet>
 			void Bind(std::string api, std::function<void(const httplib::Request&, httplib::Response&)> func)
 			{
@@ -1243,35 +1002,16 @@ namespace rs
 			 *Date :[7/10/2019 ]
 			 *Author :[RS]
 			 */
-			void Init()
-			{
-				web.Options(R"(\*)", CrosDomain);
-				web.Get("/config/web", [&](const httplib::Request& req, httplib::Response& res)
-				{
-					//CrosDomain(req, res);
-					std::string result = "server closeed";
-					rs::JsonUtils::ClassToString(result, webConf);
-					res.set_content(result, "application/json");
-				});
-				web.set_error_handler([](const httplib::Request& /*req*/, httplib::Response& res) {
-					const char* fmt = "<p>Error Status: <span style='color:red;'>%d</span></p>";
-					char buf[BUFSIZ];
-					snprintf(buf, sizeof(buf), fmt, res.status);
-					res.set_content(buf, "text/html");
-				});
-				logger->info("init success");
-			}
+			void Init();
 
 		private:
+			rs::log::LOGGER loggerWeb = rs::log::getLogger("web");
 			WebConf webConf;
 			httplib::Server web;
 		};
-		std::shared_ptr<WebServer> webServer;
-		std::once_flag onceFlagWeb;
-		void callOnceInstanceWeb()
-		{
-			webServer = std::make_shared<WebServer>();
-		}
+		void callOnceInstanceWeb();
+		extern  std::shared_ptr<WebServer> webServer;
+		extern std::once_flag onceFlagWeb;
 		/**
 		* 绑定get 或者post 方法(仅支持这两种)
 		* 如果isGetFunc为ture,那么就是get方法,否则绑定post
@@ -1313,232 +1053,59 @@ namespace rs
 			std::vector<zabbixCoreData> data;
 		};
 
-		void from_json(const nlohmann::json& j, ZabbixConfig& p)
+		inline void from_json(const nlohmann::json& j, ZabbixConfig& p)
 		{
 			j.at("ZabbixHost").get_to(p.ZabbixHost);
 			j.at("ZabbixPort").get_to(p.ZabbixPort);
 			j.at("MonitoringHost").get_to(p.MonitoringHost);
 			j.at("MonitoringKey").get_to(p.MonitoringKey);
 		};
-		void to_json(nlohmann::json& j, const  zabbixCoreData& p)
+
+		inline void to_json(nlohmann::json& j, const  zabbixCoreData& p)
 		{
 			j = nlohmann::json{ {"host", p.host}, {"key", p.key}, {"value", p.value} };
 		};
-		void to_json(nlohmann::json& j, const zabbixData& p)
+
+		inline void to_json(nlohmann::json& j, const zabbixData& p)
 		{
 			j = nlohmann::json{ {"request", p.request}, {"data", p.data} };
 		};
 		class ZbxSender
 		{
 		public:
-			ZbxSender()
-			{
-				// Create a daily logger - a new file is created every day on 2:30am
-				std::string  logdir = StringUtils::getAppPathRS() + "zabbix" + StringUtils::PathSeparatorRS() + "logs";
-				StringUtils::CreateFolderRS(logdir);
-
-				//logger = spdlog::daily_logger_mt("daily_logger", logdir+"\\zabbix.log", 2, 30);
-				logger = spdlog::daily_logger_st("daily_logger", logdir + "\\zabbix.log", 2, 30);
-				spdlog::flush_every(std::chrono::seconds(1));
-				auto resFileToclass = JsonUtils::FileToClass(StringUtils::getAppPathRS() + "zabbix/zabbix.json", config);
-				if (!resFileToclass) {
-					logger->info("zabbix config not find or error");
-				}
-				ready = true;
-				std::thread worker(&ZbxSender::run, this);
-				worker.detach();
-			}
+			ZbxSender();
 			std::atomic<bool> ready;
 
-			void send(std::string data)
-			{
-				queue.push(data);
-			}
+			void send(std::string data);
 
-
-			~ZbxSender()
-			{
-				ready = false;
-			}
+			~ZbxSender();
 		private:
-			void run()
-			{
-				logger->info("zabbixSender started");
-				while (ready)
-				{
-					if (!queue.empty())
-					{
-						std::string data = queue.front();
-						queue.pop();
-						tcp_send(data);
-					}
+			void run();
 
-					if (queue.size() > 100)
-					{
-						queue.empty();
-					}
-					std::this_thread::sleep_for(std::chrono::milliseconds(100));
-				}
-			}
-			bool tcp_send(std::string value)
-			{
-				asio::io_service io_service;
-				asio::ip::tcp::socket socket(io_service);
-				try
-				{
-					socket.connect(asio::ip::tcp::endpoint(asio::ip::address::from_string(config.ZabbixHost), config.ZabbixPort));
-				}
-				catch (std::exception& e)
-				{
-					logger->warn("{}: datadetail:{}", e.what(), value);
-					return false;
-				}
-
-				if (value.length() > 4000)
-				{
-					logger->error("msg is too long:{}", value);
-					return false;
-				}
-
-				char msg[4096];
-				memset(msg, 0x00, 4096);
-				//strcpy_s(msg, "ZBXD");
-				strcpy(msg, "ZBXD");
-				//strcpy(msg, "ZBXD");
-				msg[4] = 0x01;
-				zabbixData data;
-				zabbixCoreData coredata;
-				coredata.host = config.MonitoringHost;
-				coredata.key = config.MonitoringKey;
-				coredata.value = value;
-				data.data.push_back(coredata);
-				std::string DATA;
-				JsonUtils::ClassToString(DATA, data);
-				int32_t data_len = DATA.length();
-				memcpy(msg + 5, &data_len, sizeof(int32_t));
-				memcpy(msg + 13, DATA.c_str(), DATA.length());
-
-				asio::error_code error;
-				asio::write(socket, asio::buffer(msg, data_len + 13), error);
-
-				if (error) {
-					TextError = "send failed: " + error.message();
-					logger->error("{} data detail:{}", TextError, DATA);
-				}
-				else {
-					logger->info("send:{}", value);
-				}
-
-				asio::streambuf receive_buffer;
-				asio::read(socket, receive_buffer, asio::transfer_all(), error);
-
-				if (error && error != asio::error::eof) {
-					logger->error("receive failed: {}", error.message());
-				}
-				else {
-					const char* data = asio::buffer_cast<const char*>(receive_buffer.data());
-					logger->info("receive data:{}", data);
-				}
-
-				return 0;
-			}
+			bool tcp_send(std::string value);
 		private:
 			std::shared_ptr<spdlog::logger> logger;
 			std::queue<std::string> queue;
 			std::string TextError;
 			ZabbixConfig config;
-
 		};
-		std::shared_ptr<ZbxSender> zbx;
-		std::once_flag onceFlagZabbix;
-		void newInstanceCallOnce()
-		{
-			zbx = std::make_shared<ZbxSender>();
-		}
-		void send(std::string msg)
-		{
-			if (zbx)
-			{
-				zbx->send(msg);
-			}
-			else
-			{
-				std::call_once(onceFlagZabbix, newInstanceCallOnce);
-				zbx->send(msg);
-			}
-		}
+
+
+		void newInstanceCallOnce();
+
+		void send(std::string msg);
 	}
 	/**
 	 * dump处理
 	 */
 	namespace dumpbin
 	{
+		int GenerateMiniDump(PEXCEPTION_POINTERS pExceptionPointers);
 
-
-		int GenerateMiniDump(PEXCEPTION_POINTERS pExceptionPointers)
-		{
-			// 定义函数指针
-			typedef BOOL(WINAPI * MiniDumpWriteDumpT)(
-				HANDLE,
-				DWORD,
-				HANDLE,
-				MINIDUMP_TYPE,
-				PMINIDUMP_EXCEPTION_INFORMATION,
-				PMINIDUMP_USER_STREAM_INFORMATION,
-				PMINIDUMP_CALLBACK_INFORMATION
-				);
-			// 从 "DbgHelp.dll" 库中获取 "MiniDumpWriteDump" 函数
-			MiniDumpWriteDumpT pfnMiniDumpWriteDump = NULL;
-			HMODULE hDbgHelp = LoadLibrary(_T("DbgHelp.dll"));
-			if (NULL == hDbgHelp)
-			{
-				return EXCEPTION_CONTINUE_EXECUTION;
-			}
-			pfnMiniDumpWriteDump = (MiniDumpWriteDumpT)GetProcAddress(hDbgHelp, "MiniDumpWriteDump");
-
-			if (NULL == pfnMiniDumpWriteDump)
-			{
-				FreeLibrary(hDbgHelp);
-				return EXCEPTION_CONTINUE_EXECUTION;
-			}
-			// 创建 dmp 文件件
-			TCHAR szFileName[MAX_PATH] = { 0 };
-			TCHAR* szVersion = _T("DumpDemo_v1.0");
-			SYSTEMTIME stLocalTime;
-			GetLocalTime(&stLocalTime);
-			wsprintf(szFileName, "%s-%04d%02d%02d-%02d%02d%02d.dmp",
-				szVersion, stLocalTime.wYear, stLocalTime.wMonth, stLocalTime.wDay,
-				stLocalTime.wHour, stLocalTime.wMinute, stLocalTime.wSecond);
-			HANDLE hDumpFile = CreateFile(szFileName, GENERIC_READ | GENERIC_WRITE,
-				FILE_SHARE_WRITE | FILE_SHARE_READ, 0, CREATE_ALWAYS, 0, 0);
-			if (INVALID_HANDLE_VALUE == hDumpFile)
-			{
-				FreeLibrary(hDbgHelp);
-				return EXCEPTION_CONTINUE_EXECUTION;
-			}
-			// 写入 dmp 文件
-			MINIDUMP_EXCEPTION_INFORMATION expParam;
-			expParam.ThreadId = GetCurrentThreadId();
-			expParam.ExceptionPointers = pExceptionPointers;
-			expParam.ClientPointers = FALSE;
-			pfnMiniDumpWriteDump(GetCurrentProcess(), GetCurrentProcessId(),
-				hDumpFile, MiniDumpWithFullMemory, (pExceptionPointers ? &expParam : NULL), NULL, NULL);
-			// 释放文件  MiniDumpWithDataSegs  MiniDumpNormal
-			CloseHandle(hDumpFile);
-			FreeLibrary(hDbgHelp);
-			return EXCEPTION_EXECUTE_HANDLER;
-		}
-
-		LONG WINAPI ExceptionFilter(LPEXCEPTION_POINTERS lpExceptionInfo)
-		{
-			// 这里做一些异常的过滤或提示
-			if (IsDebuggerPresent())
-			{
-				return EXCEPTION_CONTINUE_SEARCH;
-			}
-			return GenerateMiniDump(lpExceptionInfo);
-		}
+		LONG WINAPI ExceptionFilter(LPEXCEPTION_POINTERS lpExceptionInfo);
 
 	}
 
 }
+
+#endif /* RSUTILS */

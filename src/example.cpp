@@ -84,11 +84,39 @@ void testWeb()
 /**
  * 使用原则,类内log
  */
+static auto mainLog = rs::log::getLogger("main");
 void testlog()
 {
 	using namespace rs::log;
-	static auto mainLog = rs::log::getLogger("main");
-	mainLog->info("cmd log :{}", 23);
+	//默认info
+	for (int i = 0; i < 100; ++i)
+	{
+		mainLog->info("hello info");
+		mainLog->debug("hello trance");
+		mainLog->error("error");
+		mainLog->trace("trance");
+		//rs::log::LoggerFactory::getInstance().updateLogConfig(spdlog::level::trace, spdlog::level::debug);
+		mainLog->info("hello info");
+		mainLog->debug("hello trance");
+
+		mainLog->info("cmd log :{}", 23);
+	}
+	//LoggerFactory::getInstance().updateLogConfig(spdlog::level::trace, spdlog::level::trace);
+	system("pause");
+	for (int i = 0; i < 100; ++i)
+	{
+		mainLog->info("hello info");
+		mainLog->debug("hello trance");
+		mainLog->error("error");
+		mainLog->trace("trance");
+
+		mainLog->info("hello info");
+		mainLog->debug("hello trance");
+
+		mainLog->info("cmd log :{}", 23);
+	}
+
+
 }
 void testZbx()
 {
@@ -96,14 +124,19 @@ void testZbx()
 	std::this_thread::sleep_for(std::chrono::seconds(3));
 }
 
+
+void spdlogTest()
+{
+
+}
 int main(int argc, char* argv[])
 {
-	testUUID();
+	//testUUID();
 	//testString();
 	//testClock();
 	//testCron();
 	//testWeb();
-	//testlog();
+	testlog();
 	//testZbx();
 	system("pause");
 	return 0;
