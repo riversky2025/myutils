@@ -53,7 +53,7 @@ void testClock()
 void testCron()
 {
 	using namespace rs::quart;
-	std::string cron = "0 0 10 * * *";
+	std::string cron = "0 50 9 * * *";
 	std::chrono::system_clock::time_point ti;
 	if (getNextTimePoint(cron, ti))
 	{
@@ -129,6 +129,104 @@ void spdlogTest()
 {
 
 }
+void messageBusTest()
+{
+	rs::msgbus::message_bus ms;
+	ms.RegisterHandler("a", [](int a, int b, int c)
+	{
+		return a + b + c;
+	});
+	ms.RegisterHandler("b", [](int c, int a) { std::cout << c << "  " << a << std::endl; });
+	ms.call_void("b", 2, 3);
+	auto re = ms.call<int>("a", 1, 2, 4);
+	std::cout << re << std::endl;
+
+}
+class MyTcpHandler :public rs::socket::tcp::TcpClientI
+{
+public:
+	//right
+	virtual void onConnected(std::shared_ptr<rs::socket::tcp::TcpClientImpl<>> client) override
+	{
+		const auto& so = client->getSocket();
+
+		mainLog->info("local connected success( {}:{})", so.local_endpoint().address().to_string(), so.local_endpoint().port());
+	}
+	//right
+	virtual void onConnectionFailure(std::shared_ptr<rs::socket::tcp::TcpClientImpl<>> client, const asio::error_code& ec)
+	{
+		mainLog->info("disconnected ( {}:{})", client->getConfig().ip, client->getConfig().port);
+	}
+
+	virtual void onSendError(std::shared_ptr<rs::socket::tcp::TcpClientImpl<>> client, const  asio::error_code& ec)
+	{
+		mainLog->info("send error");
+	}
+	virtual void onSendComplete(std::shared_ptr<rs::socket::tcp::TcpClientImpl<>> client, uint8_t* msgPtr, size_t sizeMsg)
+	{
+		mainLog->info("send ok:{}", std::string((char*)msgPtr, sizeMsg));
+	}
+	virtual void onReceiveError(std::shared_ptr<rs::socket::tcp::TcpClientImpl<>> client, const asio::error_code& ec)
+	{
+		mainLog->info("receive error:{}", ec.message());
+	}
+	virtual void onReceiveMsg(std::shared_ptr<rs::socket::tcp::TcpClientImpl<>> client, std::string typeMsg, rs::Any& msg)
+	{
+		auto msgStr = msg.AnyCast<std::string>();
+		mainLog->info("receive success type:{},msg:{}", typeMsg, msgStr);
+		if (msgStr.find("stop") != std::string::npos)
+		{
+			client->Stop();
+		}
+	}
+	virtual void onConnectionClosed(std::shared_ptr<rs::socket::tcp::TcpClientImpl<>> client)
+	{
+		mainLog->info("connect closed");
+	}
+};
+void testTcp()
+{
+	rs::socket::tcp::TcpConfAsio config = { "192.168.1.159",10000,1,10,5 };
+	auto target = std::make_shared<rs::socket::tcp::TcpClientImpl<>>(config);
+	auto myHandler = std::make_shared<MyTcpHandler>();
+	target->registerSpi(myHandler);
+	target->registerEncoderHandler("heartbeat", [](std::shared_ptr<rs::Any> msg, rs::buffer::ByteBuffer* sendBuffer)
+	{
+		auto data = msg->AnyCast<std::string>();
+		sendBuffer->putBytes(data.c_str());
+	});
+	target->registerEncoderHandler("bbb", [](std::shared_ptr<rs::Any>msg, rs::buffer::ByteBuffer* densBuffer)
+	{
+		auto data = msg->AnyCast<std::string>();
+		densBuffer->putBytes(data.c_str());
+	});
+	target->registerLengthHandler([](rs::buffer::ByteBuffer* receive, int* length)->std::string
+	{
+		*length = receive->readableBytes();
+		std::string e((char*)receive->dataReading(), 3);
+		return e;
+	});
+	target->registerDecoderHandle("aaa", [](rs::buffer::ByteBuffer* receive)->rs::Any
+	{
+		std::string e((char*)receive->dataReading(), receive->readableBytes());
+		return e;
+	});
+	target->Start();
+	std::atomic_uint64_t  iSidat;
+	std::thread a([&, target]()
+	{
+		while (true)
+		{
+			std::this_thread::sleep_for(std::chrono::milliseconds(5));
+			auto msg = fmt::format("msg a({})", iSidat.fetch_add(1));
+			mainLog->info("send:{}", msg);
+			target->send("bbb", msg);
+		}
+	});
+	a.join();
+
+}
+
 int main(int argc, char* argv[])
 {
 	//testUUID();
@@ -136,8 +234,11 @@ int main(int argc, char* argv[])
 	//testClock();
 	//testCron();
 	//testWeb();
-	testlog();
+	//testlog();
 	//testZbx();
+	//messageBusTest();
+
+	testTcp();
 	system("pause");
 	return 0;
 }

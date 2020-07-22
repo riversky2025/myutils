@@ -15,6 +15,13 @@
 #include <Windows.h>
 #include <tchar.h>
 #include <DbgHelp.h>
+#include <typeindex>
+#include <memory>
+#include <typeindex>
+#include <exception>
+#include <iostream>
+#include <functional>
+#include <tuple>
 #include "nlohmann/json.hpp"
 #include "httplib.h"
 #include "spdlog/spdlog.h"
@@ -23,6 +30,8 @@
 #include "spdlog/sinks/stdout_color_sinks.h"
 #include "spdlog/sinks/daily_file_sink.h"
 #include "asio.hpp"
+#include "concurrentqueue/blockingconcurrentqueue.h"
+#include <atomic>
 #ifdef UNICODE
 #define TSprintf	wsprintf
 #else
@@ -34,6 +43,163 @@
 namespace rs
 {
 
+	struct Any
+	{
+		Any(void) : m_tpIndex(std::type_index(typeid(void))) {}
+		Any(const Any& that) : m_ptr(that.Clone()), m_tpIndex(that.m_tpIndex) {}
+		Any(Any&& that) : m_ptr(std::move(that.m_ptr)), m_tpIndex(that.m_tpIndex) {}
+
+		//创建智能指针时，对于一般的类型，通过std::decay来移除引用和cv符，从而获取原始类型
+		template<typename U, class = typename std::enable_if<!std::is_same<typename std::decay<U>::type, Any>::value, U>::type> Any(U&& value) : m_ptr(new Derived < typename std::decay<U>::type>(std::forward<U>(value))),
+			m_tpIndex(std::type_index(typeid(typename std::decay<U>::type))) {}
+
+		bool IsNull() const { return !bool(m_ptr); }
+
+		template<class U> bool Is() const
+		{
+			return m_tpIndex == std::type_index(typeid(U));
+		}
+
+		//将Any转换为实际的类型
+		template<class U>
+		U& AnyCast()
+		{
+			if (!Is<U>())
+			{
+				std::cout << "can not cast " << typeid(U).name() << " to " << m_tpIndex.name() << std::endl;
+				throw std::logic_error{ "bad cast" };
+			}
+
+			auto derived = dynamic_cast<Derived<U>*> (m_ptr.get());
+			return derived->m_value;
+		}
+
+		Any& operator=(const Any& a)
+		{
+			if (m_ptr == a.m_ptr)
+				return *this;
+
+			m_ptr = a.Clone();
+			m_tpIndex = a.m_tpIndex;
+			return *this;
+		}
+
+		Any& operator=(Any&& a)
+		{
+			if (m_ptr == a.m_ptr)
+				return *this;
+
+			m_ptr = std::move(a.m_ptr);
+			m_tpIndex = a.m_tpIndex;
+			return *this;
+		}
+
+	private:
+		struct Base;
+		typedef std::unique_ptr<Base> BasePtr;
+
+		struct Base
+		{
+			virtual ~Base() {}
+			virtual BasePtr Clone() const = 0;
+		};
+
+		template<typename T>
+		struct Derived : Base
+		{
+			template<typename U>
+			Derived(U&& value) : m_value(std::forward<U>(value)) { }
+
+			BasePtr Clone() const
+			{
+				return BasePtr(new Derived<T>(m_value));
+			}
+
+			T m_value;
+		};
+
+		BasePtr Clone() const
+		{
+			if (m_ptr != nullptr)
+				return m_ptr->Clone();
+
+			return nullptr;
+		}
+
+		BasePtr m_ptr;
+		std::type_index m_tpIndex;
+	};
+	class NonCopyable
+	{
+	public:
+		NonCopyable(const NonCopyable&) = delete; // deleted
+		NonCopyable& operator = (const NonCopyable&) = delete; // deleted
+		NonCopyable() = default;   // available
+	};
+	namespace traits {
+		//转换为std::function和函数指针. 
+		template<typename T>
+		struct function_traits;
+		//普通函数.
+		template<typename Ret, typename... Args>
+		struct function_traits<Ret(Args...)>
+		{
+		public:
+			enum { arity = sizeof...(Args) };
+			typedef Ret function_type(Args...);
+			typedef Ret return_type;
+			using stl_function_type = std::function<function_type>;
+			typedef Ret(*pointer)(Args...);
+
+			template<size_t I>
+			struct args
+			{
+				static_assert(I < arity, "index is out of range, index must less than sizeof Args");
+				using type = typename std::tuple_element<I, std::tuple<Args...>>::type;
+			};
+
+			typedef std::tuple<std::remove_cv_t<std::remove_reference_t<Args>>...> tuple_type;
+			typedef std::tuple<std::remove_const_t<std::remove_reference_t<Args>>...> bare_tuple_type;
+		};
+		//函数指针.
+		template<typename Ret, typename... Args>
+		struct function_traits<Ret(*)(Args...)> : function_traits<Ret(Args...)> {};
+
+		//std::function.
+		template <typename Ret, typename... Args>
+		struct function_traits<std::function<Ret(Args...)>> : function_traits<Ret(Args...)> {};
+
+		//member function.
+#define FUNCTION_TRAITS(...)\
+		template <typename ReturnType, typename ClassType, typename... Args>\
+		struct function_traits<ReturnType(ClassType::*)(Args...) __VA_ARGS__> : function_traits<ReturnType(Args...)>{};\
+
+		FUNCTION_TRAITS()
+			FUNCTION_TRAITS(const)
+			FUNCTION_TRAITS(volatile)
+			FUNCTION_TRAITS(const volatile)
+			//函数对象.
+			template<typename Callable>
+		struct function_traits : function_traits<decltype(&Callable::operator())> {};
+
+		template <typename Function>
+		typename function_traits<Function>::stl_function_type to_function(const Function& lambda)
+		{
+			return static_cast<typename function_traits<Function>::stl_function_type>(lambda);
+		}
+
+		template <typename Function>
+		typename function_traits<Function>::stl_function_type to_function(Function&& lambda)
+		{
+			return static_cast<typename function_traits<Function>::stl_function_type>(std::forward<Function>(lambda));
+		}
+
+		template <typename Function>
+		typename function_traits<Function>::pointer to_function_pointer(const Function& lambda)
+		{
+			return static_cast<typename function_traits<Function>::pointer>(lambda);
+		}
+	};
 
 	namespace design
 	{
@@ -517,6 +683,494 @@ namespace rs
 			}
 		};
 
+	}
+
+	namespace msgbus
+	{
+		class message_bus
+		{
+		public:
+			template<typename Function>
+			void RegisterHandler(std::string const& name, const Function& f)
+			{
+				using std::placeholders::_1;
+				using std::placeholders::_2;
+				using return_type=typename traits::function_traits<Function>::return_type;
+				this->invokers_[name] = { std::bind(&invoker<Function>::apply,f,_1,_2) };
+			}
+			template<typename T, typename ...Args>
+			T call(const std::string& name, Args&& ... args)
+			{
+				auto it = invokers_.find(name);
+				if (it == invokers_.end())
+				{
+					return {};
+				}
+				auto args_tuple = std::make_tuple(std::forward<Args>(args)...);
+				char data[sizeof(std::tuple < Args ...>)];
+				std::tuple<Args...>* tp = new(data) std::tuple<Args...>;
+				*tp = args_tuple;
+				T t;
+				it->second(tp, &t);
+				return t;
+			}
+			template<typename ...Args>
+			void call_void(const std::string& name, Args&& ... args)
+			{
+				auto it = invokers_.find(name);
+				if (it == invokers_.end())
+					return;
+				auto args_tuple = std::make_tuple(std::forward<Args>(args)...);
+				it->second(&args_tuple, nullptr);
+
+
+			}
+		private:
+			template<typename Function>
+			struct invoker
+			{
+				static inline void apply(const Function& func, void* b1, void* result)
+				{
+					using tuple_type=typename traits::function_traits<Function>::tuple_type;
+					const tuple_type* tp = static_cast<tuple_type*>(b1);
+					call(func, *tp, result);
+				}
+				template<typename F, typename ... Args>
+				static typename std::enable_if<std::is_void<typename  std::result_of<F(Args...)>::type>::value>::type
+					call(const F& f, const std::tuple<Args...>& tp, void*)
+				{
+					callHelp(f, std::make_index_sequence<sizeof ...(Args)>{}, tp);
+				}
+				template<typename F, typename ...Args>
+				static typename std::enable_if<!std::is_void<typename  std::result_of<F(Args...)>::type>::value>::type
+					call(const F& f, const std::tuple<Args...>& tp, void* result)
+				{
+					auto r = callHelp(f, std::make_index_sequence<sizeof ...(Args)>{}, tp);
+					*(decltype(r)*)result = r;
+				}
+				template<typename F, size_t... I, typename ... Args>
+				static auto callHelp(const F& f, const std::index_sequence<I...>&, const std::tuple<Args...>& tup)
+				{
+					return f(std::get<I>(tup)...);
+				}
+			};
+		private:
+			std::map<std::string, std::function<void(void*, void*)>> invokers_;
+		};
+	};
+	namespace socket
+	{
+		/**
+		 * 编码类型
+		 */
+		enum MSG_DIRECT
+		{
+			ENCODE,
+			DECODE
+		};
+		namespace tcp
+		{
+			struct TcpConfAsio {
+				std::string  ip;
+				uint16_t port;
+				uint8_t softwareVersion;
+				uint8_t reConnectTime = 1;//连接失败重连时间间隔
+				uint8_t heartBeat = 8;
+			};
+			enum TcpClientStatus
+			{
+				TcpClientStatusIdle = 0,
+				TcpClientStatusResolvingHost,
+				TcpClientStatusConnecting,
+				TcpClientStatusConnected,
+				TcpClientStatusClosing,
+				TcpClientStatusClosed,
+				TcpClientStatusError = -1
+			};
+
+#define TRADER_SYSTEM_UTIL_TCPCLIENT_DEFAULT_RX_BUFFER_SIZE 4096
+#define TRADER_SYSTEM_UTIL_TCPCLIENT_DEFAULT_TX_BUFFER_SIZE 4096
+#define			MAX_MSG_SIZE_DEFAULT  512
+			class TcpClientI;
+			struct Msg
+			{
+				std::string msgType;
+				rs::Any     msg;
+			};
+			/**
+			 * 处理TCP
+			 * 注册心跳机制编码器,msgType 为heartbeat,触发的话1. 注册编码,2. 心跳间隔>0
+			 * msgType length 为消息长度与msgType 解析
+			 */
+			template <unsigned int RxBufferSize = TRADER_SYSTEM_UTIL_TCPCLIENT_DEFAULT_RX_BUFFER_SIZE, unsigned int TxBufferSize = TRADER_SYSTEM_UTIL_TCPCLIENT_DEFAULT_TX_BUFFER_SIZE, unsigned int MAX_MSG_SIZE = MAX_MSG_SIZE_DEFAULT>
+			class TcpClientImpl :public std::enable_shared_from_this<TcpClientImpl<RxBufferSize, TxBufferSize, MAX_MSG_SIZE>>
+			{
+			public:
+				TcpClientImpl(TcpConfAsio config) :
+					tcpConfig(config),
+					ioThread(nullptr),
+					receiveBuffer(RxBufferSize), sendBuffer(TxBufferSize),
+					socket(ioContext), endpoint(asio::ip::address::from_string(config.ip), config.port),
+					timer(ioContext), inited(true)
+				{
+					sending.store(false);
+					receiving.store(false);
+				}
+				~TcpClientImpl()
+				{
+					Stop();
+					ioContext.stop();
+					if (ioThread->joinable())
+					{
+						ioThread->join();
+					}
+				}
+				void Start()
+				{
+
+					{
+						std::lock_guard<std::mutex> lock(mutexSocket);
+						if (ioThread != nullptr)
+						{
+							return;
+						}
+					}
+					connect();
+					sendThread = new std::thread(std::bind(&TcpClientImpl::sendWork, this->shared_from_this()));
+
+					ioThread = new std::thread(std::bind(&TcpClientImpl::worker, this->shared_from_this()));
+
+					std::this_thread::sleep_for(std::chrono::seconds(1));
+				}
+				void Stop()
+				{
+					inited = false;
+					if (sendThread->joinable())
+					{
+						sendThread->join();
+					}
+
+					{
+						std::lock_guard<std::mutex> lock(mutexSocket);
+						if (!socket.is_open())
+						{
+							return;
+						}
+					}
+					asio::error_code ec;
+					socket.shutdown(asio::ip::tcp::socket::shutdown_receive);
+					socket.close(ec);
+					handler->onConnectionClosed(this->shared_from_this());
+				}
+
+				//注册编码器
+				void registerEncoderHandler(std::string msgType, std::function<void(std::shared_ptr<rs::Any>, rs::buffer::ByteBuffer* sendBuffer)> encodeHandler)
+				{
+					encodes.RegisterHandler(msgType, encodeHandler);
+				}
+				//注册解码器
+				void registerDecoderHandle(std::string msgType, std::function<Any(rs::buffer::ByteBuffer* recevieBuffer)> decodeHandler)
+				{
+					decodes.RegisterHandler(msgType, decodeHandler);
+				}
+				void registerLengthHandler(std::function<std::string(rs::buffer::ByteBuffer* recevieBuffer, int*)> f)
+				{
+					decodes.RegisterHandler("length", f);
+				}
+				void registerSpi(std::shared_ptr<TcpClientI> client)
+				{
+					handler = client;
+				}
+				void asyncSend(std::string msgType, Any msg)
+				{
+					Msg msg1 = { msgType,msg };
+					sendMsgQueue.enqueue(msg1);
+				}
+				void send(std::string msgType, Any msg)
+				{
+					if (status == TcpClientStatusConnected)
+					{
+						std::shared_ptr<Any>  msgPtr = std::make_shared<Any>(msg);
+						encodes.call_void(msgType, msgPtr, &sendBuffer);
+						startSendTx();
+					}
+					else
+					{
+
+					}
+				}
+				const asio::ip::tcp::socket& getSocket()
+				{
+					return socket;
+				}
+				const TcpConfAsio& getConfig()
+				{
+					return tcpConfig;
+				}
+			private:
+				void ReStart()
+				{
+					{
+						std::lock_guard<std::mutex> lock(mutexSocket);
+						if (!socket.is_open())
+						{
+							return;
+						}
+					}
+					asio::error_code ec;
+					socket.shutdown(asio::ip::tcp::socket::shutdown_receive);
+					socket.close(ec);
+					handler->onConnectionClosed(this->shared_from_this());
+				}
+				void connect()
+				{
+					std::cout << "async connect  1" << std::endl;
+					socket.async_connect(endpoint, std::bind(&TcpClientImpl::onConnect, shared_from_this(), std::placeholders::_1));
+					std::cout << "async connect  2" << std::endl;
+				}
+				void onConnect(const asio::error_code& ec)
+				{
+					if (ec)
+					{
+						asio::error_code eca;
+						socket.close(eca);
+						handler->onConnectionFailure(this->shared_from_this(), ec);
+						std::this_thread::sleep_for(std::chrono::seconds(tcpConfig.reConnectTime));
+						connect();
+					}
+					else
+					{
+						handler->onConnected(this->shared_from_this());
+						if (tcpConfig.heartBeat > 0)
+						{
+							StartHeartBeat();
+						}
+						{
+							std::lock_guard<std::mutex> lock(mutexSocket);
+							status = TcpClientStatusConnected;
+							receiving.store(false);
+							StartReceive();
+						}
+					}
+				}
+				void StartReceive()
+				{
+					{
+						//接收锁
+						if (receiving.load())
+						{
+							return;
+						}
+						receiving.store(true);
+					}
+					doReceive();
+				}
+				void StartHeartBeat()
+				{
+
+					timer.expires_from_now(std::chrono::seconds(tcpConfig.heartBeat));
+					timer.async_wait(std::bind(&TcpClientImpl::onHeartBeat, this->shared_from_this(), std::placeholders::_1));
+				}
+				void onHeartBeat(const asio::error_code& error)
+				{
+					if (!error)
+					{
+						if (status == TcpClientStatusConnected)
+						{
+							if (!sending.load())
+							{
+
+								asyncSend("heartbeat", std::string("hello"));
+							}
+							startSendTx();
+							StartHeartBeat();
+						}
+					}
+				}
+				void doReceive()
+				{
+					socket.async_read_some(asio::buffer(receiveBuffer.dataWriting(), receiveBuffer.writableBytes()),
+						std::bind(&TcpClientImpl::onReceive, this->shared_from_this(), std::placeholders::_1, std::placeholders::_2));
+				}
+				void onReceive(const asio::error_code& ec, size_t readSize)
+				{
+					if (ec)
+					{
+						status = TcpClientStatusIdle;
+						handler->onReceiveError(this->shared_from_this(), ec);
+						ReStart();
+						status = TcpClientStatusError;
+						connect();
+					}
+					else
+					{
+						receiveBuffer.writeSkip(readSize);
+						if (receiveBuffer.writableBytes() < MAX_MSG_SIZE)
+						{
+							receiveBuffer.discardReadBytes();
+						}
+						int length;
+						auto msgType = decodes.call<std::string>("length", &receiveBuffer, &length);
+						if (receiveBuffer.readableBytes() >= length)
+						{
+							auto result = decodes.call<Any>(msgType, &receiveBuffer);
+							handler->onReceiveMsg(shared_from_this(), msgType, result);
+							receiveBuffer.skip(length);
+						}
+
+						doReceive();
+					}
+				}
+				void startSendTx()
+				{
+					{
+						//send lock
+						if (sending.load())
+						{
+							return;
+						}
+						if (sendBuffer.isReadable())
+						{
+							sending.store(true);
+						}
+						else
+						{
+							return;
+						}
+					}
+					sendTx();
+				}
+				void sendTx()
+				{
+					socket.async_write_some(asio::buffer(
+						sendBuffer.dataReading(),
+						sendBuffer.readableBytes()
+					),
+						std::bind(&TcpClientImpl::onSendTx, this->shared_from_this(), std::placeholders::_1, std::placeholders::_2));
+				}
+				void onSendTx(const asio::error_code& ec, size_t writeSize)
+				{
+					if (ec)
+					{
+						handler->onSendError(this->shared_from_this(), ec);
+						ReStart();
+						status = TcpClientStatusError;
+						connect();
+						return;
+					}
+					handler->onSendComplete(this->shared_from_this(), sendBuffer.dataReading(), writeSize);
+					sendBuffer.skip(writeSize);
+					if (sendBuffer.readableBytes() > 0)
+					{
+						sending.store(false);
+						if (sendBuffer.writableBytes() < MAX_MSG_SIZE)
+						{
+							sendBuffer.discardReadBytes();
+						}
+						sendTx();
+					}
+					else
+					{
+						sendBuffer.discardReadBytes();
+						sending.store(false);
+					}
+
+				}
+			private:
+				void worker()
+				{
+					try
+					{
+						ioContext.run();
+					}
+					catch (...)
+					{
+						int x = 0;
+						x++;
+					}
+					int i = 0;
+					i++;
+				}
+				void sendWork()
+				{
+					while (inited)
+					{
+
+						if (sendBuffer.writableBytes() > MAX_MSG_SIZE)
+						{
+							Msg msg;
+							if (sendMsgQueue.wait_dequeue_timed(msg, std::chrono::milliseconds(5)))
+							{
+								send(msg.msgType, msg.msg);
+							}
+						}
+						else
+						{
+							sendBuffer.discardReadBytes();
+							if (sendBuffer.writableBytes() <= MAX_MSG_SIZE)
+							{
+								std::this_thread::sleep_for(std::chrono::milliseconds(100));
+							}
+						}
+
+					}
+				}
+			private:
+				/**
+				 * 底层上下文
+				 */
+				asio::io_context ioContext;
+				std::thread* ioThread;
+				asio::ip::tcp::endpoint endpoint;
+				std::mutex mutexSocket;
+				asio::ip::tcp::socket socket;
+
+				std::atomic_bool sending;
+				std::atomic_bool receiving;
+				std::shared_ptr<TcpClientI> handler;
+				//心跳使用
+				asio::steady_timer timer;
+
+				TcpConfAsio tcpConfig;
+				/**
+				 * 一个线程,无需加锁
+				 */
+				buffer::ByteBuffer sendBuffer;
+				/**
+				 * 一个线程,无需加锁
+				 */
+				buffer::ByteBuffer receiveBuffer;
+				/**
+				 * socket 状态
+				 */
+				TcpClientStatus status;
+
+				msgbus::message_bus encodes;//编码msgbuss
+				msgbus::message_bus decodes;//解码msgbuss
+
+				std::thread* sendThread;
+
+				volatile bool inited;
+				/**
+				 * 发送队列-定时器进行数据读取->Buffer
+				 */
+				moodycamel::BlockingConcurrentQueue<Msg> sendMsgQueue;
+			};
+			class TcpClientI
+			{
+			public:
+				//right
+				virtual void onConnected(std::shared_ptr<TcpClientImpl<>> client) = 0;
+				//right
+				virtual void onConnectionFailure(std::shared_ptr<TcpClientImpl<>> client, const asio::error_code& ec) = 0;
+
+				virtual void onSendError(std::shared_ptr<TcpClientImpl<>> client, const  asio::error_code& ec) = 0;
+				virtual void onSendComplete(std::shared_ptr<TcpClientImpl<>> client, uint8_t*, size_t) = 0;
+				virtual void onReceiveError(std::shared_ptr<TcpClientImpl<>> client, const asio::error_code& ec) = 0;
+				virtual void onReceiveMsg(std::shared_ptr<TcpClientImpl<>> client, std::string msgType, Any& msg) = 0;
+				virtual void onConnectionClosed(std::shared_ptr<TcpClientImpl<>> client) = 0;
+			};
+		}
 	}
 
 	namespace JsonUtils

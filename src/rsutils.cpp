@@ -276,6 +276,7 @@ std::shared_ptr<rs::clock::TimerClock> rs::clock::TimerClockFactory::getInstance
 	return std::make_shared<TimerClock>();
 }
 
+
 rs::buffer::ByteBuffer::ByteBuffer(uint32_t size)
 {
 	buf = new uint8_t[size];
