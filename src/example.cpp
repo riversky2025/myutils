@@ -230,10 +230,17 @@ void testTcp()
 
 void testSchedule()
 {
-	rs::schedules::ScheduleTask t;
+	auto& t = rs::design::singleton<rs::schedules::ScheduleTask>::instance();
+
 	t.RegistSchedule("1 * * * * *", []() {	mainLog->info("bala1");	});
 	t.RegistSchedule("32 * * * * *", []() {	mainLog->info("bala2");	});
 	t.RegistSchedule("13 * * * * *", []() {	mainLog->info("bala3");	});
+
+
+}
+void testSchedulestep2()
+{
+	auto& t = rs::design::singleton<rs::schedules::ScheduleTask>::instance();
 	t.RegistSchedule("21 * * * * *", []() {	mainLog->info("bala11");	});
 	t.RegistSchedule("48 * * * * *", []() {	mainLog->info("bala18");	});
 	t.RegistSchedule("59 * * * * *", []() {	mainLog->info("bala19");	});
@@ -254,6 +261,7 @@ int main(int argc, char* argv[])
 
 	//testTcp();
 	testSchedule();
+	testSchedulestep2();
 	//system("pause");
 	return 0;
 }
