@@ -12,7 +12,10 @@
 #include <sstream>
 #pragma comment(lib, "dbghelp.lib")
 #define    WIN32_LEAN_AND_MEAN
+#ifdef _WIN32
 #include <Windows.h>
+#endif
+
 #include <tchar.h>
 #include <DbgHelp.h>
 #include <typeindex>
@@ -1467,9 +1470,9 @@ namespace rs
 			strcat(szPath, "/");
 			return szPath;
 #endif
-		}
+			}
 
-	}
+		}
 	/**
 	 * 日志工具
 	 *  三种工具函数
@@ -1881,6 +1884,6 @@ namespace rs
 
 	}
 
-}
+	}
 
 #endif /* RSUTILS */
