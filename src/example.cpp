@@ -227,6 +227,20 @@ void testTcp()
 
 }
 
+
+void testSchedule()
+{
+	rs::schedules::ScheduleTask t;
+	t.RegistSchedule("1 * * * * *", []() {	mainLog->info("bala1");	});
+	t.RegistSchedule("32 * * * * *", []() {	mainLog->info("bala2");	});
+	t.RegistSchedule("13 * * * * *", []() {	mainLog->info("bala3");	});
+	t.RegistSchedule("21 * * * * *", []() {	mainLog->info("bala11");	});
+	t.RegistSchedule("48 * * * * *", []() {	mainLog->info("bala18");	});
+	t.RegistSchedule("59 * * * * *", []() {	mainLog->info("bala19");	});
+	t.Run();
+	std::this_thread::sleep_for(std::chrono::minutes(1));
+	t.Stop();
+}
 int main(int argc, char* argv[])
 {
 	//testUUID();
@@ -238,7 +252,8 @@ int main(int argc, char* argv[])
 	//testZbx();
 	//messageBusTest();
 
-	testTcp();
-	system("pause");
+	//testTcp();
+	testSchedule();
+	//system("pause");
 	return 0;
 }

@@ -1565,6 +1565,16 @@ namespace rs
 			return (err == NULL);
 		}
 		/**
+		 * 正则表达式验证
+		 */
+		inline  bool checkCornFormat(std::string const& cronStr)
+		{
+			cron_expr cornTmp;
+			const char* err;
+			cron_parse_expr(cronStr.c_str(), &cornTmp, &err);
+			return (err == NULL);
+		}
+		/**
 		 * 获取正则表达式下一个time point
 		 */
 		inline bool getNextTimePoint(std::string const& cronStr, std::chrono::system_clock::time_point& result)
@@ -1587,6 +1597,117 @@ namespace rs
 		}
 
 	}
+	/**
+	 * 定时任务，mutimap容器存放
+	 */
+	namespace schedules
+	{
+		class ScheduleTask
+		{
+		public:
+			~ScheduleTask()
+			{
+				Stop();
+			}
+			bool RegistSchedule(std::string corn, std::function<void()> function)
+			{
+				if (quart::checkCornFormat(corn))
+				{
+					auto findMaps = functionMaps.find(corn);
+					if (findMaps != functionMaps.end())
+					{
+						findMaps->second.push_back(function);
+					}
+					else
+					{
+						std::vector<std::function<void()>> v = { function };
+						functionMaps[corn] = std::move(v);
+					}
+				}
+				else
+				{
+					return false;
+				}
+			}
+
+			void Run()
+			{
+				for (auto functionVector : functionMaps)
+				{
+					if (timesMap.find(functionVector.first) == timesMap.end())
+					{
+						timesMap[functionVector.first] = std::make_shared<asio::steady_timer>(ioContext);
+					}
+				}
+
+				for (auto& timer_ : timesMap)
+				{
+					std::chrono::system_clock::time_point tp;
+					quart::getNextTimePoint(timer_.first, tp);
+					std::cout << StringUtils::TimeToString(std::chrono::system_clock::to_time_t(tp)) << std::endl;
+					auto dur = tp - std::chrono::system_clock::now();
+					timer_.second->expires_from_now(dur);
+					timer_.second->async_wait(std::bind(&ScheduleTask::async_work, this, timer_.first, std::placeholders::_1));
+				}
+				scheduleThread = std::move(std::thread([&]()
+				{
+					ioContext.run();
+				}));
+			}
+			void Stop()
+			{
+				for (auto& t : timesMap)
+				{
+					t.second->cancel();
+				}
+				if (!ioContext.stopped())
+				{
+					ioContext.stop();
+				}
+				if (scheduleThread.joinable())
+				{
+					scheduleThread.join();
+				}
+			}
+		private:
+			void async_work(std::string corn, std::error_code ec)
+			{
+				if (ec)
+				{
+					return;
+				}
+				{
+					auto& dataIter = functionMaps.find(corn);
+					if (dataIter != functionMaps.end())
+					{
+						for (auto& func : dataIter->second)
+						{
+							func();
+						}
+					}
+				}
+				try
+				{
+					auto& timer = timesMap[corn];
+					std::chrono::system_clock::time_point tp;
+					quart::getNextTimePoint(corn, tp);
+					auto dur = tp - std::chrono::system_clock::now();
+					timer->expires_from_now(dur);
+					timer->async_wait(std::bind(&ScheduleTask::async_work, this, corn, std::placeholders::_1));
+
+				}
+				catch (...)
+				{
+
+				}
+			};
+		private:
+			std::thread scheduleThread;
+			std::map<std::string, std::shared_ptr<asio::steady_timer>> timesMap;
+			asio::io_context ioContext;
+			std::map<std::string, std::vector< std::function<void()>>> functionMaps;
+		};
+	};
 	/**
 	 * web工具类
 	 * 采用类restful api开发 ,嵌入文档,初始化需要传入配置
