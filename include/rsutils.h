@@ -14,10 +14,11 @@
 #define    WIN32_LEAN_AND_MEAN
 #ifdef _WIN32
 #include <Windows.h>
+#include <tchar.h>
 #include <DbgHelp.h>
 #endif
 
-#include <tchar.h>
+
 
 #include <typeindex>
 #include <memory>
