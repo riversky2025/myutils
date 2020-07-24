@@ -14,10 +14,11 @@
 #define    WIN32_LEAN_AND_MEAN
 #ifdef _WIN32
 #include <Windows.h>
+#include <DbgHelp.h>
 #endif
 
 #include <tchar.h>
-#include <DbgHelp.h>
+
 #include <typeindex>
 #include <memory>
 #include <typeindex>
@@ -1470,9 +1471,9 @@ namespace rs
 			strcat(szPath, "/");
 			return szPath;
 #endif
-			}
-
 		}
+
+	}
 	/**
 	 * 日志工具
 	 *  三种工具函数
@@ -1876,6 +1877,7 @@ namespace rs
 	/**
 	 * dump处理
 	 */
+#ifdef _WIN32
 	namespace dumpbin
 	{
 		int GenerateMiniDump(PEXCEPTION_POINTERS pExceptionPointers);
@@ -1883,7 +1885,7 @@ namespace rs
 		LONG WINAPI ExceptionFilter(LPEXCEPTION_POINTERS lpExceptionInfo);
 
 	}
-
-	}
+#endif
+}
 
 #endif /* RSUTILS */

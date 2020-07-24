@@ -449,7 +449,7 @@ rs::buffer::ByteBuffer* rs::buffer::ByteBuffer::capacity(int newCapacity)
 	capacity_ = newCapacity;
 	return this;
 }
-
+#ifdef _WIN32
 int rs::dumpbin::GenerateMiniDump(PEXCEPTION_POINTERS pExceptionPointers)
 {
 	// 定义函数指针
@@ -513,6 +513,8 @@ LONG __stdcall rs::dumpbin::ExceptionFilter(LPEXCEPTION_POINTERS lpExceptionInfo
 	}
 	return GenerateMiniDump(lpExceptionInfo);
 }
+#endif
+
 std::shared_ptr<rs::web::WebServer> rs::web::webServer;
 std::once_flag rs::web::onceFlagWeb;
 rs::web::WebServer::WebServer()
