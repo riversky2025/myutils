@@ -1,0 +1,7 @@
+{
+  "cmdLevel": "trace",
+  "fileLevel": "trace",
+  "hour": 1,
+  "logName": "system.log",
+  "min": 1
+}

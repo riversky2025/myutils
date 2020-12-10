@@ -1,0 +1,4 @@
+D:\devsoft\clion\bin\cmake\win\bin\cmake.exe -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_COMPILER=D:/vs/VC/Tools/MSVC/14.21.27702/bin/HostX64/x64/cl.exe -DCMAKE_CXX_COMPILER=D:/vs/VC/Tools/MSVC/14.21.27702/bin/HostX64/x64/cl.exe -G "CodeBlocks - NMake Makefiles" G:\dev\rstool\myutils
+-- Configuring done
+-- Generating done
+-- Build files have been written to: G:/dev/rstool/myutils/cmake-build-debug

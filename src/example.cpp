@@ -155,20 +155,23 @@ public:
 	//right
 	virtual void onConnectionFailure(std::shared_ptr<rs::socket::tcp::TcpClientImpl<>> client, const asio::error_code& ec)
 	{
-		mainLog->info("disconnected ( {}:{})", client->getConfig().ip, client->getConfig().port);
+		mainLog->error("disconnected ( {}:{}),{}", client->getConfig().ip, client->getConfig().port,ec.message());
+	}
+	virtual void onWarn(std::string msg) {
+	    mainLog->warn("{}",msg);
 	}
 
-	virtual void onSendError(std::shared_ptr<rs::socket::tcp::TcpClientImpl<>> client, const  asio::error_code& ec)
+    virtual void onSendError(std::shared_ptr<rs::socket::tcp::TcpClientImpl<>> client, const  asio::error_code& ec)
 	{
-		mainLog->info("send error");
+		mainLog->error("send error:{}-{}",ec.value(),ec.message());
 	}
 	virtual void onSendComplete(std::shared_ptr<rs::socket::tcp::TcpClientImpl<>> client, uint8_t* msgPtr, size_t sizeMsg)
 	{
-		mainLog->info("send ok:{}", std::string((char*)msgPtr, sizeMsg));
+		//mainLog->info("send ok({}):{}", rs::StringUtils::getTimeStamp(), std::string((char*)msgPtr, sizeMsg));
 	}
 	virtual void onReceiveError(std::shared_ptr<rs::socket::tcp::TcpClientImpl<>> client, const asio::error_code& ec)
 	{
-		mainLog->info("receive error:{}", ec.message());
+		mainLog->error("receive error:{}-{}",ec.value(), ec.message());
 	}
 	virtual void onReceiveMsg(std::shared_ptr<rs::socket::tcp::TcpClientImpl<>> client, std::string typeMsg, rs::Any& msg)
 	{
@@ -186,19 +189,72 @@ public:
 };
 void testTcp()
 {
-	rs::socket::tcp::TcpConfAsio config = { "192.168.1.159",10000,1,10,5 };
+	rs::socket::tcp::TcpConfAsio config = { "192.168.1.159",6001,1,10,5 };
 	auto target = std::make_shared<rs::socket::tcp::TcpClientImpl<>>(config);
 	auto myHandler = std::make_shared<MyTcpHandler>();
 	target->registerSpi(myHandler);
+	auto tcpLog = rs::log::getLogger("tcp");
 	target->registerEncoderHandler("heartbeat", [](std::shared_ptr<rs::Any> msg, rs::buffer::ByteBuffer* sendBuffer)
 	{
-		auto data = msg->AnyCast<std::string>();
-		sendBuffer->putBytes(data.c_str());
+
+		static uint8_t HEARTBEAT_TYPE = 'E';
+		std::string heartBeatString = "";
+
+		heartBeatString = fmt::format("{}@{}:{}", rs::StringUtils::getTimeStamp(), "192.168.1.159", 1111);
+		uint16_t shortTemp = heartBeatString.length() + 12;
+		//使用大端的方式
+		uint8_t* tmp = (uint8_t*)& shortTemp;
+		sendBuffer->putChar(tmp[1]);
+		sendBuffer->putChar(tmp[0]);
+		sendBuffer->putChar(1);
+		sendBuffer->putChar(HEARTBEAT_TYPE);
+		sendBuffer->putChar(0);
+		sendBuffer->putChar(0);
+		sendBuffer->putLong(rs::StringUtils::getTimeStamp());
+		sendBuffer->putBytes(heartBeatString.c_str());
 	});
 	target->registerEncoderHandler("bbb", [](std::shared_ptr<rs::Any>msg, rs::buffer::ByteBuffer* densBuffer)
 	{
 		auto data = msg->AnyCast<std::string>();
 		densBuffer->putBytes(data.c_str());
+	});
+	static int asynNum = 0;
+	target->registerEncoderHandler("q7", [&, tcpLog](std::shared_ptr<rs::Any>msg, rs::buffer::ByteBuffer* sendBuf)
+	{
+		asynNum++;
+		std::string oneLevel = fmt::format("KRX@{}@{},{},{},,{},{}@{}@{}@{}@{}@{}@{}@{}@", "119Q7", 5,
+			50, 0, 60, asynNum,
+			46150, 12,
+			46300,643,
+			462250, 1,
+			8016);
+		std::string fiveLevel = fmt::format("{}@{}@{}@{}@{}@{}@{}@{}@{}@{}@{}@{}@{}@{}@{}@{}",
+			"", 1,
+			"", 5,
+			100,16,
+			150,5,
+			1000,1,
+			200,1,
+			200,2,
+			300,3
+		);
+		int level1Length = oneLevel.size();
+		std::string depthString = oneLevel + fiveLevel;
+		
+		tcpLog->debug("depth({}):{}",rs::StringUtils::getTimeStamp(),  depthString);
+		int shortTemp = depthString.size() + 12;
+		uint8_t*  tmp = (uint8_t*)& shortTemp;
+		sendBuf->putChar(tmp[1]);
+		sendBuf->putChar(tmp[0]);
+		sendBuf->putChar(1);
+		sendBuf->putChar('A');
+		sendBuf->putChar(depthString.size() + 12);
+		sendBuf->putChar(level1Length + 12);
+		sendBuf->putLong(rs::StringUtils::getTimeStamp());
+
+		sendBuf->putBytes(depthString.c_str());
+		
+		
 	});
 	target->registerLengthHandler([](rs::buffer::ByteBuffer* receive, int* length)->std::string
 	{
@@ -212,18 +268,16 @@ void testTcp()
 		return e;
 	});
 	target->Start();
-	std::atomic_uint64_t  iSidat;
 	std::thread a([&, target]()
 	{
 		while (true)
 		{
-			std::this_thread::sleep_for(std::chrono::milliseconds(5));
-			auto msg = fmt::format("msg a({})", iSidat.fetch_add(1));
-			mainLog->info("send:{}", msg);
-			target->send("bbb", msg);
+			std::this_thread::sleep_for(std::chrono::seconds (1));
+			target->asyncSend("q7", "");
 		}
 	});
 	a.join();
+	
 
 }
 
@@ -259,9 +313,9 @@ int main(int argc, char* argv[])
 	//testZbx();
 	//messageBusTest();
 
-	//testTcp();
-	testSchedule();
-	testSchedulestep2();
+	testTcp();
+	/*testSchedule();
+	testSchedulestep2();*/
 	//system("pause");
 	return 0;
 }

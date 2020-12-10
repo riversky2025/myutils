@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CodeBlocks_project_file>
+	<FileVersion major="1" minor="6"/>
+	<Project>
+		<Option title="RSUtils"/>
+		<Option makefile_is_custom="1"/>
+		<Option compiler="msvc8"/>
+		<Option virtualFolders="CMake Files\;"/>
+		<Build>
+			<Target title="all">
+				<Option working_dir="G:/dev/rstool/myutils/cmake-build-debug"/>
+				<Option type="4"/>
+				<MakeCommands>
+					<Build command="nmake /NOLOGO /f G:\dev\rstool\myutils\cmake-build-debug\Makefile VERBOSE=1 all"/>
+					<CompileFile command="nmake /NOLOGO /f G:\dev\rstool\myutils\cmake-build-debug\Makefile VERBOSE=1 &quot;$file&quot;"/>
+					<Clean command="nmake /NOLOGO /f G:\dev\rstool\myutils\cmake-build-debug\Makefile VERBOSE=1 clean"/>
+					<DistClean command="nmake /NOLOGO /f G:\dev\rstool\myutils\cmake-build-debug\Makefile VERBOSE=1 clean"/>
+				</MakeCommands>
+			</Target>
+			<Target title="RSUtils">
+				<Option output="G:/dev/rstool/myutils/cmake-build-debug/RSUtils.exe" prefix_auto="0" extension_auto="0"/>
+				<Option working_dir="G:/dev/rstool/myutils/cmake-build-debug"/>
+				<Option object_output="./"/>
+				<Option type="1"/>
+				<Option compiler="msvc8"/>
+				<Compiler>
+					<Add option="-DCRON_USE_LOCAL_TIME"/>
+					<Add directory="G:/dev/rstool/myutils/./include"/>
+					<Add directory="D:\vs\VC\Tools\MSVC\14.21.27702\ATLMFC\include"/>
+					<Add directory="D:\vs\VC\Tools\MSVC\14.21.27702\include"/>
+					<Add directory="C:\Program Files (x86)\Windows Kits\NETFXSDK\4.6.1\include\um"/>
+					<Add directory="D:\Windows Kits\10\include\10.0.17763.0\ucrt"/>
+					<Add directory="C:\Program Files (x86)\Windows Kits\8.1\include\shared"/>
+					<Add directory="C:\Program Files (x86)\Windows Kits\8.1\include\um"/>
+					<Add directory="C:\Program Files (x86)\Windows Kits\8.1\include\winrt"/>
+					<Add directory="C:\Program Files (x86)\Windows Kits\8.1\include\cppwinrt"/>
+				</Compiler>
+				<MakeCommands>
+					<Build command="nmake /NOLOGO /f G:\dev\rstool\myutils\cmake-build-debug\Makefile VERBOSE=1 RSUtils"/>
+					<CompileFile command="nmake /NOLOGO /f G:\dev\rstool\myutils\cmake-build-debug\Makefile VERBOSE=1 &quot;$file&quot;"/>
+					<Clean command="nmake /NOLOGO /f G:\dev\rstool\myutils\cmake-build-debug\Makefile VERBOSE=1 clean"/>
+					<DistClean command="nmake /NOLOGO /f G:\dev\rstool\myutils\cmake-build-debug\Makefile VERBOSE=1 clean"/>
+				</MakeCommands>
+			</Target>
+			<Target title="RSUtils/fast">
+				<Option output="G:/dev/rstool/myutils/cmake-build-debug/RSUtils.exe" prefix_auto="0" extension_auto="0"/>
+				<Option working_dir="G:/dev/rstool/myutils/cmake-build-debug"/>
+				<Option object_output="./"/>
+				<Option type="1"/>
+				<Option compiler="msvc8"/>
+				<Compiler>
+					<Add option="-DCRON_USE_LOCAL_TIME"/>
+					<Add directory="G:/dev/rstool/myutils/./include"/>
+					<Add directory="D:\vs\VC\Tools\MSVC\14.21.27702\ATLMFC\include"/>
+					<Add directory="D:\vs\VC\Tools\MSVC\14.21.27702\include"/>
+					<Add directory="C:\Program Files (x86)\Windows Kits\NETFXSDK\4.6.1\include\um"/>
+					<Add directory="D:\Windows Kits\10\include\10.0.17763.0\ucrt"/>
+					<Add directory="C:\Program Files (x86)\Windows Kits\8.1\include\shared"/>
+					<Add directory="C:\Program Files (x86)\Windows Kits\8.1\include\um"/>
+					<Add directory="C:\Program Files (x86)\Windows Kits\8.1\include\winrt"/>
+					<Add directory="C:\Program Files (x86)\Windows Kits\8.1\include\cppwinrt"/>
+				</Compiler>
+				<MakeCommands>
+					<Build command="nmake /NOLOGO /f G:\dev\rstool\myutils\cmake-build-debug\Makefile VERBOSE=1 RSUtils/fast"/>
+					<CompileFile command="nmake /NOLOGO /f G:\dev\rstool\myutils\cmake-build-debug\Makefile VERBOSE=1 &quot;$file&quot;"/>
+					<Clean command="nmake /NOLOGO /f G:\dev\rstool\myutils\cmake-build-debug\Makefile VERBOSE=1 clean"/>
+					<DistClean command="nmake /NOLOGO /f G:\dev\rstool\myutils\cmake-build-debug\Makefile VERBOSE=1 clean"/>
+				</MakeCommands>
+			</Target>
+			<Target title="edit_cache">
+				<Option working_dir="G:/dev/rstool/myutils/cmake-build-debug"/>
+				<Option type="4"/>
+				<MakeCommands>
+					<Build command="nmake /NOLOGO /f G:\dev\rstool\myutils\cmake-build-debug\Makefile VERBOSE=1 edit_cache"/>
+					<CompileFile command="nmake /NOLOGO /f G:\dev\rstool\myutils\cmake-build-debug\Makefile VERBOSE=1 &quot;$file&quot;"/>
+					<Clean command="nmake /NOLOGO /f G:\dev\rstool\myutils\cmake-build-debug\Makefile VERBOSE=1 clean"/>
+					<DistClean command="nmake /NOLOGO /f G:\dev\rstool\myutils\cmake-build-debug\Makefile VERBOSE=1 clean"/>
+				</MakeCommands>
+			</Target>
+			<Target title="rebuild_cache">
+				<Option working_dir="G:/dev/rstool/myutils/cmake-build-debug"/>
+				<Option type="4"/>
+				<MakeCommands>
+					<Build command="nmake /NOLOGO /f G:\dev\rstool\myutils\cmake-build-debug\Makefile VERBOSE=1 rebuild_cache"/>
+					<CompileFile command="nmake /NOLOGO /f G:\dev\rstool\myutils\cmake-build-debug\Makefile VERBOSE=1 &quot;$file&quot;"/>
+					<Clean command="nmake /NOLOGO /f G:\dev\rstool\myutils\cmake-build-debug\Makefile VERBOSE=1 clean"/>
+					<DistClean command="nmake /NOLOGO /f G:\dev\rstool\myutils\cmake-build-debug\Makefile VERBOSE=1 clean"/>
+				</MakeCommands>
+			</Target>
+		</Build>
+		<Unit filename="G:/dev/rstool/myutils/src/ccronexpr.c">
+			<Option target="RSUtils"/>
+		</Unit>
+		<Unit filename="G:/dev/rstool/myutils/src/example.cpp">
+			<Option target="RSUtils"/>
+		</Unit>
+		<Unit filename="G:/dev/rstool/myutils/src/rsutils.cpp">
+			<Option target="RSUtils"/>
+		</Unit>
+		<Unit filename="G:/dev/rstool/myutils/CMakeLists.txt">
+			<Option virtualFolder="CMake Files\"/>
+		</Unit>
+	</Project>
+</CodeBlocks_project_file>

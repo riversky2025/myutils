@@ -26,6 +26,7 @@
 #include <exception>
 #include <iostream>
 #include <functional>
+#include <type_traits>
 #include <tuple>
 #include "nlohmann/json.hpp"
 #include "httplib.h"
@@ -763,422 +764,480 @@ namespace rs
 			std::map<std::string, std::function<void(void*, void*)>> invokers_;
 		};
 	};
-	namespace socket
-	{
-		/**
-		 * 编码类型
-		 */
-		enum MSG_DIRECT
-		{
-			ENCODE,
-			DECODE
-		};
-		namespace tcp
-		{
-			struct TcpConfAsio {
-				std::string  ip;
-				uint16_t port;
-				uint8_t softwareVersion;
-				uint8_t reConnectTime = 1;//连接失败重连时间间隔
-				uint8_t heartBeat = 8;
-			};
-			enum TcpClientStatus
-			{
-				TcpClientStatusIdle = 0,
-				TcpClientStatusResolvingHost,
-				TcpClientStatusConnecting,
-				TcpClientStatusConnected,
-				TcpClientStatusClosing,
-				TcpClientStatusClosed,
-				TcpClientStatusError = -1
-			};
+    namespace socket
+    {
+        /**
+         * 编码类型
+         */
+        enum MSG_DIRECT
+        {
+            ENCODE,
+            DECODE
+        };
+        namespace tcp
+        {
+            struct TcpConfAsio {
+                std::string  ip;
+                uint16_t port;
+                uint8_t softwareVersion;
+                uint8_t reConnectTime = 1;//连接失败重连时间间隔
+                uint8_t heartBeat = 8;
+            };
+            enum TcpClientStatus
+            {
+                CONNECTING,
+                DISCONNECING,
+                CONNECTED,
+                DISCONNECTED,
+                CLOSED
+            };
 
-#define TRADER_SYSTEM_UTIL_TCPCLIENT_DEFAULT_RX_BUFFER_SIZE 4096
-#define TRADER_SYSTEM_UTIL_TCPCLIENT_DEFAULT_TX_BUFFER_SIZE 4096
-#define			MAX_MSG_SIZE_DEFAULT  512
-			class TcpClientI;
-			struct Msg
-			{
-				std::string msgType;
-				rs::Any     msg;
-			};
-			/**
-			 * 处理TCP
-			 * 注册心跳机制编码器,msgType 为heartbeat,触发的话1. 注册编码,2. 心跳间隔>0
-			 * msgType length 为消息长度与msgType 解析
-			 */
-			template <unsigned int RxBufferSize = TRADER_SYSTEM_UTIL_TCPCLIENT_DEFAULT_RX_BUFFER_SIZE, unsigned int TxBufferSize = TRADER_SYSTEM_UTIL_TCPCLIENT_DEFAULT_TX_BUFFER_SIZE, unsigned int MAX_MSG_SIZE = MAX_MSG_SIZE_DEFAULT>
-			class TcpClientImpl :public std::enable_shared_from_this<TcpClientImpl<RxBufferSize, TxBufferSize, MAX_MSG_SIZE>>
-			{
-			public:
-				TcpClientImpl(TcpConfAsio config) :
-					tcpConfig(config),
-					ioThread(nullptr),
-					receiveBuffer(RxBufferSize), sendBuffer(TxBufferSize),
-					socket(ioContext), endpoint(asio::ip::address::from_string(config.ip), config.port),
-					timer(ioContext), inited(true)
-				{
-					sending.store(false);
-					receiving.store(false);
-				}
-				~TcpClientImpl()
-				{
-					Stop();
-					ioContext.stop();
-					if (ioThread->joinable())
-					{
-						ioThread->join();
-					}
-				}
-				void Start()
-				{
+#define TRADER_SYSTEM_UTIL_TCPCLIENT_DEFAULT_RX_BUFFER_SIZE 8192
+#define TRADER_SYSTEM_UTIL_TCPCLIENT_DEFAULT_TX_BUFFER_SIZE 8192
+#define			MAX_MSG_SIZE_DEFAULT  1024
+            class TcpClientI;
+            struct Msg
+            {
+                std::string msgType;
+                rs::Any     msg;
+            };
+            /**
+             * 处理TCP
+             * 注册心跳机制编码器,msgType 为heartbeat,触发的话1. 注册编码,2. 心跳间隔>0
+             * msgType length 为消息长度与msgType 解析
+             */
+            template <unsigned int RxBufferSize = TRADER_SYSTEM_UTIL_TCPCLIENT_DEFAULT_RX_BUFFER_SIZE, unsigned int TxBufferSize = TRADER_SYSTEM_UTIL_TCPCLIENT_DEFAULT_TX_BUFFER_SIZE, unsigned int MAX_MSG_SIZE = MAX_MSG_SIZE_DEFAULT>
+            class TcpClientImpl :public std::enable_shared_from_this<TcpClientImpl<RxBufferSize, TxBufferSize, MAX_MSG_SIZE>>
+            {
+            public:
+                TcpClientImpl(TcpConfAsio config) :
+                        tcpConfig(config),
+                        ioThread(nullptr),
+                        receiveBuffer(RxBufferSize), sendBuffer(TxBufferSize),
+                        socket(ioContext), endpoint(asio::ip::address::from_string(config.ip), config.port),
+                        timer(ioContext), inited(true)
+                {
+                    sending.store(false);
+                    receiving.store(false);
+                    connectHandle = [&](const auto ec) {
+                        if (ec)
+                        {
+                            if (state_ == CONNECTED)
+                            {
+                                handler->onConnectionFailure(this->shared_from_this(), ec);
+                            }
+                            state_ = DISCONNECTED;
+                            std::this_thread::sleep_for(std::chrono::seconds(tcpConf_.reConnectTime));
+                            doReConnect();
+                        }
+                        else {
+                            state_ = CONNECTED;
+                            zbx.send("md center connect success");
+                            OnConnect();
+                            doRead();
+                        }
 
-					{
-						std::lock_guard<std::mutex> lock(mutexSocket);
-						if (ioThread != nullptr)
-						{
-							return;
-						}
-					}
-					connect();
-					sendThread = new std::thread(std::bind(&TcpClientImpl::sendWork, this->shared_from_this()));
+                        if (ec)
+                        {
+                            status=DISCONNECTED;
 
-					ioThread = new std::thread(std::bind(&TcpClientImpl::worker, this->shared_from_this()));
+                            std::this_thread::sleep_for(std::chrono::seconds(tcpConfig.reConnectTime));
+                            doConnect();
+                        }
+                        else
+                        {
+                            handler->onConnected(this->shared_from_this());
+                            if (tcpConfig.heartBeat > 0)
+                            {
+                                StartHeartBeat();
+                            }
+                            {
+                                std::lock_guard<std::mutex> lock(mutexSocket);
+                                status = CONNECTED;
+                                receiving.store(false);
+                                StartReceive();
+                            }
+                        }
 
-					std::this_thread::sleep_for(std::chrono::seconds(1));
-				}
-				void Stop()
-				{
-					inited = false;
-					if (sendThread->joinable())
-					{
-						sendThread->join();
-					}
+                    };
+                    sendHandle = [&](const auto& ec, auto size) {
 
-					{
-						std::lock_guard<std::mutex> lock(mutexSocket);
-						if (!socket.is_open())
-						{
-							return;
-						}
-					}
-					asio::error_code ec;
-					socket.shutdown(asio::ip::tcp::socket::shutdown_receive);
-					socket.close(ec);
-					handler->onConnectionClosed(this->shared_from_this());
-				}
+                        std::lock_guard<std::mutex> lock(sendMutex);
 
-				//注册编码器
-				void registerEncoderHandler(std::string msgType, std::function<void(std::shared_ptr<rs::Any>, rs::buffer::ByteBuffer* sendBuffer)> encodeHandler)
-				{
-					encodes.RegisterHandler(msgType, encodeHandler);
-				}
-				//注册解码器
-				void registerDecoderHandle(std::string msgType, std::function<Any(rs::buffer::ByteBuffer* recevieBuffer)> decodeHandler)
-				{
-					decodes.RegisterHandler(msgType, decodeHandler);
-				}
-				void registerLengthHandler(std::function<std::string(rs::buffer::ByteBuffer* recevieBuffer, int*)> f)
-				{
-					decodes.RegisterHandler("length", f);
-				}
-				void registerSpi(std::shared_ptr<TcpClientI> client)
-				{
-					handler = client;
-				}
-				void asyncSend(std::string msgType, Any msg)
-				{
-					Msg msg1 = { msgType,msg };
-					sendMsgQueue.enqueue(msg1);
-				}
-				void send(std::string msgType, Any msg)
-				{
-					if (status == TcpClientStatusConnected)
-					{
-						std::shared_ptr<Any>  msgPtr = std::make_shared<Any>(msg);
-						encodes.call_void(msgType, msgPtr, &sendBuffer);
-						startSendTx();
-					}
-					else
-					{
+                        if (ec)
+                        {
+                            handler->onSendError(this->shared_from_this(), ec);
+                            if (status != CONNECTING)
+                            {
+                                doReconnect();
+                            }
+                            return;
+                        }
+                        handler->onSendComplete(this->shared_from_this(), sendBuffer.dataReading(), writeSize);
+                        sendBuffer.skip(writeSize);
+                        if (sendBuffer.readableBytes() > 0)
+                        {
+                            sending.store(false);
+                            if (sendBuffer.writableBytes() < MAX_MSG_SIZE)
+                            {
+                                sendBuffer.discardReadBytes();
+                            }
+                            sendTx();
+                        }
+                        else
+                        {
+                            sendBuffer.discardReadBytes();
+                            sending.store(false);
+                        }
 
-					}
-				}
-				const asio::ip::tcp::socket& getSocket()
-				{
-					return socket;
-				}
-				const TcpConfAsio& getConfig()
-				{
-					return tcpConfig;
-				}
-			private:
-				void ReStart()
-				{
-					{
-						std::lock_guard<std::mutex> lock(mutexSocket);
-						if (!socket.is_open())
-						{
-							return;
-						}
-					}
-					asio::error_code ec;
-					socket.shutdown(asio::ip::tcp::socket::shutdown_receive);
-					socket.close(ec);
-					handler->onConnectionClosed(this->shared_from_this());
-				}
-				void connect()
-				{
-					std::cout << "async connect  1" << std::endl;
-					socket.async_connect(endpoint, std::bind(&TcpClientImpl::onConnect, shared_from_this(), std::placeholders::_1));
-					std::cout << "async connect  2" << std::endl;
-				}
-				void onConnect(const asio::error_code& ec)
-				{
-					if (ec)
-					{
-						asio::error_code eca;
-						socket.close(eca);
-						handler->onConnectionFailure(this->shared_from_this(), ec);
-						std::this_thread::sleep_for(std::chrono::seconds(tcpConfig.reConnectTime));
-						connect();
-					}
-					else
-					{
-						handler->onConnected(this->shared_from_this());
-						if (tcpConfig.heartBeat > 0)
-						{
-							StartHeartBeat();
-						}
-						{
-							std::lock_guard<std::mutex> lock(mutexSocket);
-							status = TcpClientStatusConnected;
-							receiving.store(false);
-							StartReceive();
-						}
-					}
-				}
-				void StartReceive()
-				{
-					{
-						//接收锁
-						if (receiving.load())
-						{
-							return;
-						}
-						receiving.store(true);
-					}
-					doReceive();
-				}
-				void StartHeartBeat()
-				{
 
-					timer.expires_from_now(std::chrono::seconds(tcpConfig.heartBeat));
-					timer.async_wait(std::bind(&TcpClientImpl::onHeartBeat, this->shared_from_this(), std::placeholders::_1));
-				}
-				void onHeartBeat(const asio::error_code& error)
-				{
-					if (!error)
-					{
-						if (status == TcpClientStatusConnected)
-						{
-							if (!sending.load())
-							{
+                        if (ec)
+                        {
+                            logger->error("write Error:{},{}", ec.value(), ec.message());
+                            doConnect();
+                        }
+                        else {
+                            bool sendFlag = false;
+                            {
+                                std::string tmp((char*)sendBuf->dataReading(), size);
+                                logger->debug("[Send] {}", tmp);
 
-								asyncSend("heartbeat", std::string("hello"));
-							}
-							startSendTx();
-							StartHeartBeat();
-						}
-					}
-				}
-				void doReceive()
-				{
-					socket.async_read_some(asio::buffer(receiveBuffer.dataWriting(), receiveBuffer.writableBytes()),
-						std::bind(&TcpClientImpl::onReceive, this->shared_from_this(), std::placeholders::_1, std::placeholders::_2));
-				}
-				void onReceive(const asio::error_code& ec, size_t readSize)
-				{
-					if (ec)
-					{
-						status = TcpClientStatusIdle;
-						handler->onReceiveError(this->shared_from_this(), ec);
-						ReStart();
-						status = TcpClientStatusError;
-						connect();
-					}
-					else
-					{
-						receiveBuffer.writeSkip(readSize);
-						if (receiveBuffer.writableBytes() < MAX_MSG_SIZE)
-						{
-							receiveBuffer.discardReadBytes();
-						}
-						int length;
-						auto msgType = decodes.call<std::string>("length", &receiveBuffer, &length);
-						if (receiveBuffer.readableBytes() >= length)
-						{
-							auto result = decodes.call<Any>(msgType, &receiveBuffer);
-							handler->onReceiveMsg(shared_from_this(), msgType, result);
-							receiveBuffer.skip(length);
-						}
+                                sendBuf->skip(size);
+                                //sendBuf->printInfo();
+                                if (sendBuf->isReadable()) {
+                                    doSend();
+                                }
+                                else {
+                                    sendBuf->discardReadBytes();
+                                    //sendBuf->printInfo();
+                                }
+                            }
+                        }
+                    };
+                    readHandle = [&](const auto& ec, auto size) {
+                        if (ec)
+                        {
+                            handler->onReceiveError(this->shared_from_this(), ec);
+                            doConnect();
+                        }
+                        else
+                        {
+                            receiveBuffer.writeSkip(readSize);
+                            if (receiveBuffer.writableBytes() < MAX_MSG_SIZE)
+                            {
+                                receiveBuffer.discardReadBytes();
+                            }
+                            int length;
+                            auto msgType = decodes.call<std::string>("length", &receiveBuffer, &length);
+                            if (receiveBuffer.readableBytes() >= length)
+                            {
+                                auto result = decodes.call<Any>(msgType, &receiveBuffer);
+                                handler->onReceiveMsg(this->shared_from_this(), msgType, result);
+                                receiveBuffer.skip(length);
+                            }
 
-						doReceive();
-					}
-				}
-				void startSendTx()
-				{
-					{
-						//send lock
-						if (sending.load())
-						{
-							return;
-						}
-						if (sendBuffer.isReadable())
-						{
-							sending.store(true);
-						}
-						else
-						{
-							return;
-						}
-					}
-					sendTx();
-				}
-				void sendTx()
-				{
-					socket.async_write_some(asio::buffer(
-						sendBuffer.dataReading(),
-						sendBuffer.readableBytes()
-					),
-						std::bind(&TcpClientImpl::onSendTx, this->shared_from_this(), std::placeholders::_1, std::placeholders::_2));
-				}
-				void onSendTx(const asio::error_code& ec, size_t writeSize)
-				{
-					if (ec)
-					{
-						handler->onSendError(this->shared_from_this(), ec);
-						ReStart();
-						status = TcpClientStatusError;
-						connect();
-						return;
-					}
-					handler->onSendComplete(this->shared_from_this(), sendBuffer.dataReading(), writeSize);
-					sendBuffer.skip(writeSize);
-					if (sendBuffer.readableBytes() > 0)
-					{
-						sending.store(false);
-						if (sendBuffer.writableBytes() < MAX_MSG_SIZE)
-						{
-							sendBuffer.discardReadBytes();
-						}
-						sendTx();
-					}
-					else
-					{
-						sendBuffer.discardReadBytes();
-						sending.store(false);
-					}
+                            doRead();
+                        }
+                    };
 
-				}
-			private:
-				void worker()
-				{
-					try
-					{
-						ioContext.run();
-					}
-					catch (...)
-					{
-						int x = 0;
-						x++;
-					}
-					int i = 0;
-					i++;
-				}
-				void sendWork()
-				{
-					while (inited)
-					{
+                }
+                ~TcpClientImpl()
+                {
+                    Stop();
+                    ioContext.stop();
+                    if (ioThread->joinable())
+                    {
+                        ioThread->join();
+                    }
+                }
+                void Start()
+                {
 
-						if (sendBuffer.writableBytes() > MAX_MSG_SIZE)
-						{
-							Msg msg;
-							if (sendMsgQueue.wait_dequeue_timed(msg, std::chrono::milliseconds(5)))
-							{
-								send(msg.msgType, msg.msg);
-							}
-						}
-						else
-						{
-							sendBuffer.discardReadBytes();
-							if (sendBuffer.writableBytes() <= MAX_MSG_SIZE)
-							{
-								std::this_thread::sleep_for(std::chrono::milliseconds(100));
-							}
-						}
+                    {
+                        std::lock_guard<std::mutex> lock(mutexSocket);
+                        if (ioThread != nullptr)
+                        {
+                            return;
+                        }
+                    }
+                    doConnect();
+                    sendThread = new std::thread(std::bind(&TcpClientImpl::sendWork, this->shared_from_this()));
 
-					}
-				}
-			private:
-				/**
-				 * 底层上下文
-				 */
-				asio::io_context ioContext;
-				std::thread* ioThread;
-				asio::ip::tcp::endpoint endpoint;
-				std::mutex mutexSocket;
-				asio::ip::tcp::socket socket;
+                    ioThread = new std::thread(std::bind(&TcpClientImpl::worker, this->shared_from_this()));
 
-				std::atomic_bool sending;
-				std::atomic_bool receiving;
-				std::shared_ptr<TcpClientI> handler;
-				//心跳使用
-				asio::steady_timer timer;
+                    std::this_thread::sleep_for(std::chrono::seconds(1));
+                }
+                void Stop()
+                {
+                    inited = false;
+                    if(status!=CLOSED){
+                        status=CLOSED;
+                    }
+                    if (sendThread->joinable())
+                    {
+                        sendThread->join();
+                    }
 
-				TcpConfAsio tcpConfig;
-				/**
-				 * 一个线程,无需加锁
-				 */
-				buffer::ByteBuffer sendBuffer;
-				/**
-				 * 一个线程,无需加锁
-				 */
-				buffer::ByteBuffer receiveBuffer;
-				/**
-				 * socket 状态
-				 */
-				TcpClientStatus status;
+                    {
+                        std::lock_guard<std::mutex> lock(mutexSocket);
+                        if (!socket.is_open())
+                        {
+                            return;
+                        }
+                    }
+                    asio::error_code ec;
+                    socket.shutdown(asio::ip::tcp::socket::shutdown_receive);
+                    socket.close(ec);
+                    handler->onConnectionClosed(this->shared_from_this());
+                }
 
-				msgbus::message_bus encodes;//编码msgbuss
-				msgbus::message_bus decodes;//解码msgbuss
+                //注册编码器
+                void registerEncoderHandler(std::string msgType, std::function<void(std::shared_ptr<rs::Any>, rs::buffer::ByteBuffer* sendBuffer)> encodeHandler)
+                {
+                    encodes.RegisterHandler(msgType, encodeHandler);
+                }
+                //注册解码器
+                void registerDecoderHandle(std::string msgType, std::function<Any(rs::buffer::ByteBuffer* recevieBuffer)> decodeHandler)
+                {
+                    decodes.RegisterHandler(msgType, decodeHandler);
+                }
+                void registerLengthHandler(std::function<std::string(rs::buffer::ByteBuffer* recevieBuffer, int*)> f)
+                {
+                    decodes.RegisterHandler("length", f);
+                }
+                void registerSpi(std::shared_ptr<TcpClientI> client)
+                {
+                    handler = client;
+                }
+                void asyncSend(std::string msgType, Any msg)
+                {
+                    Msg msg1 = { msgType,msg };
+                    if(sendMsgQueue.size_approx()>1000)
+                    {
+                        Msg msg;
+                        sendMsgQueue.try_dequeue(msg);
+                    }
+                    sendMsgQueue.enqueue(msg1);
+                }
+                void send(std::string msgType, Any msg)
+                {
+                    if (status == TcpClientStatusConnected)
+                    {
+                        std::shared_ptr<Any>  msgPtr = std::make_shared<Any>(msg);
+                        encodes.call_void(msgType, msgPtr, &sendBuffer);
+                        startSendTx();
+                    }
+                    else
+                    {
+                        handler->onWarn("nosend" + msgType);
+                    }
+                }
+                const asio::ip::tcp::socket& getSocket()
+                {
+                    return socket;
+                }
+                const TcpConfAsio getConfig()
+                {
+                    return tcpConfig;
+                }
+            private:
+                void doReconnect()
+                {
+                    if ( status != CLOSED)
+                    {
+                        std::lock_guard<std::mutex> lock(mutexSocket);
+                        if (!socket.is_open())
+                        {
+                            return;
+                        }
+                        asio::error_code ec;
+                        socket.shutdown(asio::ip::tcp::socket::shutdown_receive);
+                        socket.close(ec);
+                        status = CONNECTING;
+                        handler->onConnectionClosed(this->shared_from_this());
+                        socket.async_connect(endpoint, connectHandle);
+                    }
 
-				std::thread* sendThread;
+                }
+                void doConnect()
+                {
+                    if (status!=CLOSED) {
+                        status = CONNECTING;
+                        sendBuffer.clear();
+                        sending.store(false);
+                        handler->onWarn("async connect 1");
+                        socket.async_connect(endpoint, connectHandle);
+                        handler->onWarn("async connect 1");
+                    }
+                }
 
-				volatile bool inited;
-				/**
-				 * 发送队列-定时器进行数据读取->Buffer
-				 */
-				moodycamel::BlockingConcurrentQueue<Msg> sendMsgQueue;
-			};
-			class TcpClientI
-			{
-			public:
-				//right
-				virtual void onConnected(std::shared_ptr<TcpClientImpl<>> client) = 0;
-				//right
-				virtual void onConnectionFailure(std::shared_ptr<TcpClientImpl<>> client, const asio::error_code& ec) = 0;
+                void StartReceive()
+                {
+                    {
+                        //接收锁
+                        if (receiving.load())
+                        {
+                            return;
+                        }
+                        receiving.store(true);
+                    }
+                    doRead();
+                }
+                void StartHeartBeat()
+                {
 
-				virtual void onSendError(std::shared_ptr<TcpClientImpl<>> client, const  asio::error_code& ec) = 0;
-				virtual void onSendComplete(std::shared_ptr<TcpClientImpl<>> client, uint8_t*, size_t) = 0;
-				virtual void onReceiveError(std::shared_ptr<TcpClientImpl<>> client, const asio::error_code& ec) = 0;
-				virtual void onReceiveMsg(std::shared_ptr<TcpClientImpl<>> client, std::string msgType, Any& msg) = 0;
-				virtual void onConnectionClosed(std::shared_ptr<TcpClientImpl<>> client) = 0;
-			};
-		}
-	}
+                    timer.expires_from_now(std::chrono::seconds(tcpConfig.heartBeat));
+                    timer.async_wait(std::bind(&TcpClientImpl::onHeartBeat, this->shared_from_this(), std::placeholders::_1));
+                }
+                void onHeartBeat(const asio::error_code& error)
+                {
+                    if (!error)
+                    {
+                        if (status == TcpClientStatusConnected)
+                        {
+                            if (!sending.load())
+                            {
 
-	namespace JsonUtils
+                                asyncSend("heartbeat", std::string("hello"));
+                            }
+                            startSendTx();
+                            StartHeartBeat();
+                        }
+                    }
+                }
+                void doRead()
+                {
+                    socket.async_read_some(asio::buffer(receiveBuffer.dataWriting(), receiveBuffer.writableBytes()),readHandle);
+                }
+
+
+                void startSendTx()
+                {
+                    {
+                        //send lock
+                        if (sending.load())
+                        {
+                            handler->onWarn("sending ..." + status);
+                            return;
+                        }
+                        if (sendBuffer.isReadable())
+                        {
+                            sending.store(true);
+                        }
+                        else
+                        {
+                            return;
+                        }
+                    }
+                    sendTx();
+                }
+                void sendTx()
+                {
+                    socket.async_write_some(asio::buffer(sendBuffer.dataReading(),sendBuffer.readableBytes()),sendHandle);
+                }
+
+            private:
+                void worker()
+                {
+                    try
+                    {
+                        ioContext.run();
+                    }
+                    catch (...)
+                    {
+                        int x = 0;
+                        x++;
+                    }
+                    int i = 0;
+                    i++;
+                }
+                void sendWork()
+                {
+                    while (inited)
+                    {
+
+                        if (sendBuffer.writableBytes() > MAX_MSG_SIZE)
+                        {
+                            Msg msg;
+                            if (sendMsgQueue.wait_dequeue_timed(msg, std::chrono::microseconds(50)))
+                            {
+                                send(msg.msgType, msg.msg);
+                            }
+                        }
+                        else
+                        {
+                            sendBuffer.discardReadBytes();
+                            if (sendBuffer.writableBytes() <= MAX_MSG_SIZE)
+                            {
+                                std::this_thread::sleep_for(std::chrono::microseconds(100));
+                            }
+                        }
+
+                    }
+                }
+            protected:
+                std::function<void(asio::error_code)> connectHandle;
+                std::function<void(asio::error_code, size_t)>  sendHandle;
+                std::function<void(asio::error_code, size_t)>  readHandle;
+            private:
+                /**
+                 * 底层上下文
+                 */
+                asio::io_context ioContext;
+                std::thread* ioThread;
+                asio::ip::tcp::endpoint endpoint;
+                std::mutex mutexSocket;
+                asio::ip::tcp::socket socket;
+
+                std::atomic_bool sending;
+                std::atomic_bool receiving;
+                std::shared_ptr<TcpClientI> handler;
+                //心跳使用
+                asio::steady_timer timer;
+
+                TcpConfAsio tcpConfig;
+                /**
+                 * 一个线程,无需加锁
+                 */
+                buffer::ByteBuffer sendBuffer;
+                /**
+                 * 一个线程,无需加锁
+                 */
+                buffer::ByteBuffer receiveBuffer;
+                /**
+                 * socket 状态
+                 */
+                volatile  TcpClientStatus status;
+
+                msgbus::message_bus encodes;//编码msgbuss
+                msgbus::message_bus decodes;//解码msgbuss
+
+                std::thread* sendThread;
+
+                volatile bool inited;
+                /**
+                 * 发送队列-定时器进行数据读取->Buffer
+                 */
+                moodycamel::BlockingConcurrentQueue<Msg> sendMsgQueue;
+            };
+            class TcpClientI
+            {
+            public:
+                //right
+                virtual void onConnected(std::shared_ptr<TcpClientImpl<>> client) = 0;
+                //right
+                virtual void onConnectionFailure(std::shared_ptr<TcpClientImpl<>> client, const asio::error_code& ec) = 0;
+                virtual void onWarn(std::string) = 0;
+                virtual void onSendError(std::shared_ptr<TcpClientImpl<>> client, const  asio::error_code& ec) = 0;
+                virtual void onSendComplete(std::shared_ptr<TcpClientImpl<>> client, uint8_t*, size_t) = 0;
+                virtual void onReceiveError(std::shared_ptr<TcpClientImpl<>> client, const asio::error_code& ec) = 0;
+                virtual void onReceiveMsg(std::shared_ptr<TcpClientImpl<>> client, std::string msgType, Any& msg) = 0;
+                virtual void onConnectionClosed(std::shared_ptr<TcpClientImpl<>> client) = 0;
+            };
+        }
+    }
+
+    namespace JsonUtils
 	{
 		/*
 		 * \brief 将指定文件目录的json格式,转成对象
@@ -1316,6 +1375,10 @@ namespace rs
 			std::stringstream sb;
 			sb << timsss->tm_year + 1900 << '-' << timsss->tm_mon + 1 << '-' << timsss->tm_mday << 'T' << timsss->tm_hour << ":" << timsss->tm_min << ":" << timsss->tm_sec;
 			return sb.str();
+		}
+		static inline uint64_t getTimeStamp() {
+			auto nowTimePoint = std::chrono::system_clock::now();
+			return std::chrono::duration_cast<std::chrono::milliseconds>(nowTimePoint.time_since_epoch()).count();
 		}
 		/**
 		 * \brief 将字符串按照指定的分隔符进行分割
@@ -1806,6 +1869,33 @@ namespace rs
 			}
 			webServer->Bind<isGetFunc>(apiPath, func);
 		}
+	} 
+	namespace zipkin
+	{
+		
+		struct Annotation
+		{
+			uint64_t timestramp;
+			std::string value;
+		};
+		struct Endpoint
+		{
+			std::string serviceName;
+			std::string ipv4;
+			uint16_t  port;
+		};
+		struct Span
+		{
+			std::string traceId;
+			std::string name;
+			std::string id;
+			std::string parentId;
+			uint64_t timestamp;
+			uint64_t duration;
+			Endpoint localEndpoint;
+			std::vector<Annotation> annotations;
+		};
+		
 	}
 	/**
 	 * zabbix工具
